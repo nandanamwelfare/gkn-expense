@@ -1001,11 +1001,18 @@ function MemberBalanceSheet({entries, members, onBatchReimburse, onViewReceipt})
                       <div style={{fontSize:12,color:"rgba(255,255,255,0.6)",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.purpose}</div>
                       <div style={{fontSize:11,color:"rgba(255,255,255,0.3)",marginTop:1}}>{new Date(e.date).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"})} · {e.upiId}</div>
                     </div>
+                    <div style={{display:"flex",gap:4,flexShrink:0}}>
                     {(e.receiptUrl||e.receiptDataUrl)&&(
                       <button onClick={ev=>{ev.stopPropagation();onViewReceipt(e);}} title={e.receiptUrl?"View Receipt (Google Drive)":"View Receipt (local)"} style={{background:e.receiptUrl?"rgba(16,185,129,0.12)":"rgba(245,158,11,0.12)",border:`1px solid ${e.receiptUrl?"rgba(16,185,129,0.3)":"rgba(245,158,11,0.3)"}`,color:e.receiptUrl?"#10b981":"#f59e0b",borderRadius:7,padding:"4px 7px",cursor:"pointer",fontSize:13,flexShrink:0,display:"inline-flex",alignItems:"center",gap:3}}>
                         📎<span style={{fontSize:9}}>{e.receiptUrl?"Drive":"local"}</span>
                       </button>
                     )}
+                    {(e.invoiceUrl||e.invoiceDataUrl)&&(
+                      <button onClick={ev=>{ev.stopPropagation();onViewReceipt({...e,receiptUrl:e.invoiceUrl,receiptDataUrl:e.invoiceDataUrl});}} title={e.invoiceUrl?"View Invoice (Google Drive)":"View Invoice (local)"} style={{background:e.invoiceUrl?"rgba(139,92,246,0.12)":"rgba(139,92,246,0.1)",border:"1px solid rgba(139,92,246,0.35)",color:"#a78bfa",borderRadius:7,padding:"4px 7px",cursor:"pointer",fontSize:13,flexShrink:0,display:"inline-flex",alignItems:"center",gap:3}}>
+                        📄<span style={{fontSize:9}}>{e.invoiceUrl?"Inv":"inv"}</span>
+                      </button>
+                    )}
+                    </div>
                   </div>
                 ))}
 
@@ -1237,6 +1244,10 @@ export default function App() {
   const clearFieldError=(k)=>setFieldErrors(p=>{const n={...p};delete n[k];return n;});
 
   const receiptRef = useRef();
+  const [invoiceKey,setInvoiceKey]     = useState(0);
+  const resetInvoiceInput = ()=>setInvoiceKey(k=>k+1);
+  const [invoiceDataUrl,setInvoiceDataUrl] = useState(null);
+  const invoiceRef = useRef();
 
   const showToast=(msg,type="success")=>{setToast({msg,type});setTimeout(()=>setToast(null),3800);};
 
@@ -1353,14 +1364,18 @@ export default function App() {
       payType,txnRef:form.txnRef||null,
       receiptDataUrl: receiptDataUrl||null, // local preview until Drive upload completes
       receiptUrl: null, // will be set after Drive upload
+      invoiceDataUrl: invoiceDataUrl||null, // local preview until Drive upload completes
+      invoiceUrl: null, // will be set after Drive upload
     };
     setEntries(p=>[entry,...p]);
     setCounters(p=>({...p,[cKey]:n}));
     const savedReceipt = receiptDataUrl; // capture before clearing
     const savedReceiptMime = receiptDataUrl ? receiptDataUrl.split(";")[0].replace("data:","") : null;
+    const savedInvoice = invoiceDataUrl; // capture before clearing
+    const savedInvoiceMime = invoiceDataUrl ? invoiceDataUrl.split(";")[0].replace("data:","") : null;
     setForm({member:"",amount:"",categoryCode:"",purpose:"",date:todayStr(),upiId:"",notes:"",eventId:"",subCategory:"",txnRef:"",chequeNo:"",payeeDetails:""});
     setFieldErrors({});
-    setReceiptDataUrl(null);resetReceiptInput();setSubmitting(false);
+    setReceiptDataUrl(null);resetReceiptInput();setInvoiceDataUrl(null);resetInvoiceInput();setSubmitting(false);
     showToast(`✅ Expense submitted! ID: ${txnId}`);
     addLog(`✓ Entry created: ${txnId} ₹${parsedAmt}`,"ok");
     if(scriptUrl){
@@ -1378,16 +1393,37 @@ export default function App() {
           base64,
           mimeType: savedReceiptMime||"image/jpeg",
           date: entry.date,
-          member: entry.member
+          member: entry.member,
+          fileType: "receipt"
         });
         if(dr.success){
           addLog(`✓ Receipt saved to Drive: ${dr.folder}/${dr.fileName}`,"ok");
-          // Update the entry in local state with the Drive URL
           setEntries(p=>p.map(e=>e.id===entry.id?{...e,receiptUrl:dr.viewUrl,receiptFileId:dr.fileId}:e));
           showToast(`📎 Receipt saved to Drive — ${dr.folder}`,"success");
         }else{
           addLog(`⚠ Receipt Drive upload failed: ${dr.error} — kept locally`,"warn");
           showToast(`Receipt kept locally (Drive upload failed: ${dr.error})`,"warning");
+        }
+      }
+      // Upload invoice to Google Drive if one was attached
+      if(savedInvoice && r.success){
+        addLog(`→ Uploading invoice to Google Drive...`,"info");
+        const base64inv = savedInvoice.split(",")[1];
+        const dinv = await callScript("saveReceipt",{
+          txnId,
+          base64: base64inv,
+          mimeType: savedInvoiceMime||"image/jpeg",
+          date: entry.date,
+          member: entry.member,
+          fileType: "invoice"
+        });
+        if(dinv.success){
+          addLog(`✓ Invoice saved to Drive: ${dinv.folder}/${dinv.fileName}`,"ok");
+          setEntries(p=>p.map(e=>e.id===entry.id?{...e,invoiceUrl:dinv.viewUrl,invoiceFileId:dinv.fileId}:e));
+          showToast(`📄 Invoice saved to Drive — ${dinv.folder}`,"success");
+        }else{
+          addLog(`⚠ Invoice Drive upload failed: ${dinv.error} — kept locally`,"warn");
+          showToast(`Invoice kept locally (Drive upload failed: ${dinv.error})`,"warning");
         }
       }
       setTimeout(()=>setSyncStatus(null),3000);
@@ -1861,10 +1897,10 @@ export default function App() {
         @media(max-width:389px){
           .nav-label{display:none!important;}
           .nav-btn{padding:6px 6px!important;font-size:10px!important;}
-          .hdr-inner{padding:0 8px!important;height:52px!important;}
-          .hdr-title{font-size:13px!important;}
+          .hdr-inner{padding:0 6px!important;height:52px!important;}
+          .hdr-title{font-size:12px!important;}
           .hdr-tagline{display:none!important;}
-          .hdr-logo{width:32px!important;height:32px!important;}
+          .hdr-logo{width:30px!important;height:30px!important;}
           .content-wrap{padding:8px!important;}
           .form-grid{grid-template-columns:1fr!important;}
           .cat-grid{grid-template-columns:repeat(2,1fr)!important;}
@@ -1873,10 +1909,39 @@ export default function App() {
           .debug-drawer{width:100vw!important;right:0!important;height:52vh!important;}
           .hdr-extra-btns{display:none!important;}
           .pay-toggle button{font-size:9px!important;padding:7px 2px!important;}
+          .hdr-conn-btn{font-size:10px!important;padding:5px 7px!important;}
+          .hdr-actions{gap:4px!important;}
+        }
+
+        /* ══ MOBILE XS-PLUS: 360–389px (OnePlus 12R, many mid-range Android) ══ */
+        @media(min-width:360px) and (max-width:389px){
+          .hdr-title{font-size:13px!important;}
+          .hdr-inner{padding:0 8px!important;}
+          .hdr-conn-btn{font-size:11px!important;padding:5px 9px!important;}
         }
 
         /* ══ MOBILE S: 390–479px (iPhone 14/15, Pixel 6a) ══ */
-        @media(min-width:390px) and (max-width:479px){
+        /* 390-419px: iPhone 14/15 base, OnePlus 12R (412px), iQOO Neo 10R (412px) */
+        @media(min-width:390px) and (max-width:419px){
+          .nav-label{display:none!important;}
+          .nav-btn{padding:6px 6px!important;font-size:10px!important;}
+          .hdr-inner{padding:0 8px!important;height:52px!important;}
+          .hdr-title{font-size:13px!important;}
+          .hdr-tagline{display:none!important;}
+          .hdr-logo{width:32px!important;height:32px!important;}
+          .content-wrap{padding:9px!important;}
+          .form-grid{grid-template-columns:1fr!important;}
+          .cat-grid{grid-template-columns:repeat(3,1fr)!important;}
+          .stat-grid{grid-template-columns:repeat(2,1fr)!important;}
+          .ev-grid{grid-template-columns:1fr!important;}
+          .debug-drawer{width:100vw!important;right:0!important;}
+          .hdr-extra-btns{display:none!important;}
+          .pay-toggle button{font-size:10px!important;padding:5px 5px!important;}
+          .hdr-conn-btn{font-size:10px!important;padding:5px 7px!important;}
+        }
+
+        /* 420-479px: Pixel 6a, Samsung A-series */
+        @media(min-width:420px) and (max-width:479px){
           .nav-label{display:none!important;}
           .nav-btn{padding:7px 8px!important;font-size:11px!important;}
           .hdr-inner{padding:0 10px!important;height:54px!important;}
@@ -1885,7 +1950,7 @@ export default function App() {
           .hdr-logo{width:34px!important;height:34px!important;}
           .content-wrap{padding:10px!important;}
           .form-grid{grid-template-columns:1fr!important;}
-          .cat-grid{grid-template-columns:repeat(2,1fr)!important;}
+          .cat-grid{grid-template-columns:repeat(3,1fr)!important;}
           .stat-grid{grid-template-columns:repeat(2,1fr)!important;}
           .ev-grid{grid-template-columns:1fr!important;}
           .debug-drawer{width:100vw!important;right:0!important;}
@@ -2049,6 +2114,30 @@ export default function App() {
                   </div>
                 );
               })()}
+
+              {/* Invoice / Vendor Bill attachment */}
+              <div style={{border:"2px dashed rgba(139,92,246,0.3)",borderRadius:14,padding:"16px 18px",background:"rgba(139,92,246,0.04)",display:"flex",flexDirection:"column",alignItems:"center",gap:10,marginTop:4}}>
+                {invoiceDataUrl?(
+                  <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8,width:"100%"}}>
+                    <div style={{fontSize:11,color:"#a78bfa",fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",marginBottom:2}}>📄 Invoice / Bill Attached</div>
+                    {invoiceDataUrl.startsWith("data:image")?(
+                      <img src={invoiceDataUrl} alt="invoice" style={{maxHeight:120,maxWidth:"100%",borderRadius:8,border:"1px solid rgba(139,92,246,0.4)",objectFit:"contain"}}/>
+                    ):(
+                      <div style={{background:"rgba(139,92,246,0.12)",border:"1px solid rgba(139,92,246,0.3)",borderRadius:8,padding:"10px 18px",color:"#a78bfa",fontSize:12,fontWeight:700}}>📄 PDF Invoice Attached</div>
+                    )}
+                    <button onClick={()=>{setInvoiceDataUrl(null);resetInvoiceInput();}} style={{background:"none",border:"1px solid rgba(239,68,68,0.4)",color:"#ef4444",borderRadius:7,padding:"3px 14px",fontSize:12,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>✕ Remove</button>
+                  </div>
+                ):(
+                  <button onClick={()=>invoiceRef.current?.click()} style={{background:"rgba(139,92,246,0.1)",border:"1px solid rgba(139,92,246,0.3)",color:"#a78bfa",borderRadius:10,padding:"9px 18px",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:8}}>
+                    📄 Attach Invoice / Vendor Bill (optional)
+                  </button>
+                )}
+                <div style={{fontSize:10,color:"rgba(255,255,255,0.28)",textAlign:"center"}}>Vendor invoice, purchase bill, or any supporting document</div>
+                <input key={invoiceKey} ref={invoiceRef} type="file" accept="image/*,application/pdf" style={{display:"none"}} onChange={e=>{
+                  const f=e.target.files[0]; if(!f)return;
+                  const r=new FileReader(); r.onload=ev=>setInvoiceDataUrl(ev.target.result); r.readAsDataURL(f);
+                }}/>
+              </div>
 
               {/* Category picker with info */}
               <div style={{marginTop:22}}>
