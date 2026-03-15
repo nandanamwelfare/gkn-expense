@@ -688,6 +688,97 @@ function BulkImportModal({members,events,onImport,onClose}) {
 }
 
 /* ═══════════════════════════════════════════════════════════
+   MEMBER PIN MODAL
+═══════════════════════════════════════════════════════════ */
+function MemberPinModal({members, memberPins, onSuccess, onClose}) {
+  const [selectedMember, setSelectedMember] = useState("");
+  const [digits, setDigits] = useState(["","","","",""]);
+  const [error, setError]   = useState("");
+  const [attempts, setAttempts] = useState(0);
+  const refs = [useRef(),useRef(),useRef(),useRef(),useRef()];
+  const INP={width:"100%",padding:"9px 13px",borderRadius:9,border:"1.5px solid rgba(255,255,255,0.12)",background:"rgba(255,255,255,0.06)",color:"#fff",fontSize:13,fontFamily:"'DM Sans',sans-serif",outline:"none",boxSizing:"border-box"};
+
+  const handleKey=(i,val)=>{
+    if(!/^\d?$/.test(val))return;
+    const next=[...digits]; next[i]=val; setDigits(next); setError("");
+    if(val&&i<4)refs[i+1].current?.focus();
+    if(i===4&&val&&next.join("").length===5)verify(next.join(""),next);
+  };
+  const handleKeyDown=(i,e)=>{
+    if(e.key==="Backspace"&&!digits[i]&&i>0)refs[i-1].current?.focus();
+    if(e.key==="Enter"){const pin=digits.join(""); if(pin.length===5)verify(pin,digits);}
+  };
+
+  const verify=(pin)=>{
+    if(!selectedMember){setError("Please select your name first.");return;}
+    const expected=memberPins[selectedMember];
+    if(!expected){
+      // No PIN set for this member yet — allow through and flag
+      onSuccess(selectedMember);
+      return;
+    }
+    if(String(pin)===String(expected)){
+      onSuccess(selectedMember);
+    } else {
+      const newAttempts=attempts+1;
+      setAttempts(newAttempts);
+      setDigits(["","","","",""]);
+      setTimeout(()=>refs[0].current?.focus(),50);
+      setError(`Incorrect PIN (attempt ${newAttempts}). If you've forgotten it, contact the Treasurer to reset.`);
+    }
+  };
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:1200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{background:"linear-gradient(135deg,#0a1628,#0f2040)",border:"1px solid rgba(251,191,36,0.3)",borderRadius:24,padding:"40px 36px",width:"100%",maxWidth:400,boxShadow:"0 24px 80px rgba(0,0,0,0.8)",textAlign:"center"}}>
+        <div style={{width:62,height:62,borderRadius:"50%",background:"rgba(251,191,36,0.1)",border:"2px solid rgba(251,191,36,0.3)",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 18px",fontSize:28}}>🔑</div>
+        <h3 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:24,color:"#fbbf24",margin:"0 0 6px"}}>Member Verification</h3>
+        <p style={{color:"rgba(255,255,255,0.35)",fontSize:13,margin:"0 0 24px",lineHeight:1.6}}>Select your name and enter your PIN to submit expenses</p>
+
+        {/* Member selector */}
+        <div style={{marginBottom:20,textAlign:"left"}}>
+          <label style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.45)",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.06em"}}>Your Name</label>
+          <select value={selectedMember} onChange={e=>{setSelectedMember(e.target.value);setDigits(["","","","",""]);setError("");setTimeout(()=>refs[0].current?.focus(),50);}} style={INP}>
+            <option value="">Select your name</option>
+            {members.map(m=><option key={m}>{m}</option>)}
+          </select>
+        </div>
+
+        {/* PIN digits */}
+        <div style={{marginBottom:8,textAlign:"left"}}>
+          <label style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.45)",display:"block",marginBottom:10,textTransform:"uppercase",letterSpacing:"0.06em"}}>Your PIN</label>
+          <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+            {digits.map((d,i)=>(
+              <input key={i} ref={refs[i]}
+                type="password" inputMode="numeric" maxLength={1}
+                value={d}
+                onChange={e=>handleKey(i,e.target.value)}
+                onKeyDown={e=>handleKeyDown(i,e)}
+                style={{width:48,height:56,textAlign:"center",fontSize:22,fontWeight:800,background:"rgba(255,255,255,0.07)",border:`2px solid ${error?"rgba(239,68,68,0.6)":d?"rgba(251,191,36,0.6)":"rgba(255,255,255,0.15)"}`,borderRadius:12,color:"#fff",outline:"none",fontFamily:"'DM Sans',sans-serif",transition:"border-color 0.2s"}}
+              />
+            ))}
+          </div>
+        </div>
+
+        {error&&(
+          <div style={{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12,color:"#ef4444",textAlign:"left",lineHeight:1.5}}>
+            ⚠ {error}
+          </div>
+        )}
+
+        <button
+          onClick={()=>{const pin=digits.join(""); if(!selectedMember){setError("Please select your name first.");return;} if(pin.length===5)verify(pin); else setError("Enter all 5 digits of your PIN.");}}
+          style={{width:"100%",background:selectedMember&&digits.join("").length===5?"linear-gradient(135deg,#f59e0b,#fbbf24)":"rgba(255,255,255,0.07)",color:selectedMember&&digits.join("").length===5?"#1a1a00":"rgba(255,255,255,0.3)",border:"none",borderRadius:12,padding:"13px",fontWeight:800,fontSize:15,cursor:selectedMember&&digits.join("").length===5?"pointer":"default",fontFamily:"'DM Sans',sans-serif",marginBottom:12,transition:"all 0.2s"}}
+        >
+          Verify & Continue
+        </button>
+        <button onClick={onClose} style={{background:"none",border:"none",color:"rgba(255,255,255,0.3)",cursor:"pointer",fontSize:13,fontFamily:"'DM Sans',sans-serif"}}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
    PIN LOCK MODAL
 ═══════════════════════════════════════════════════════════ */
 function PinModal({onSuccess,onClose}) {
@@ -908,7 +999,7 @@ function VendorPanel({vendors,onAdd,onRemove,onClose}) {
 /* ═══════════════════════════════════════════════════════════
    MEMBER BALANCE SHEET
 ═══════════════════════════════════════════════════════════ */
-function MemberBalanceSheet({entries, members, onBatchReimburse, onViewReceipt}) {
+function MemberBalanceSheet({entries, members, treasurerMembers=[], onBatchReimburse, onViewReceipt}) {
   const [selectedMember, setSelectedMember] = useState(null);
   const [selectedIds, setSelectedIds]       = useState([]);
   const [payRef, setPayRef]                 = useState("");
@@ -969,7 +1060,7 @@ function MemberBalanceSheet({entries, members, onBatchReimburse, onViewReceipt})
                     {m.name.split(" ").map(w=>w[0]).slice(0,2).join("")}
                   </div>
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:13,fontWeight:700,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.name}</div>
+                    <div style={{fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:treasurerMembers.includes(m.name)?"#fbbf24":"#fff"}}>{m.name}{treasurerMembers.includes(m.name)&&<span style={{fontSize:9,marginLeft:4,opacity:0.8}}>★ Treasurer</span>}</div>
                     <div style={{fontSize:11,color:"rgba(255,255,255,0.35)",marginTop:1}}>{m.count} entr{m.count===1?"y":"ies"}</div>
                   </div>
                   <div style={{textAlign:"right",flexShrink:0}}>
@@ -1000,7 +1091,7 @@ function MemberBalanceSheet({entries, members, onBatchReimburse, onViewReceipt})
                   {sel.name.split(" ").map(w=>w[0]).slice(0,2).join("")}
                 </div>
                 <div>
-                  <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:20,color:"#fff",fontWeight:700}}>{sel.name}</div>
+                  <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:20,color:treasurerMembers.includes(sel.name)?"#fbbf24":"#fff",fontWeight:700}}>{sel.name}{treasurerMembers.includes(sel.name)&&<span style={{fontSize:12,marginLeft:6,opacity:0.8}}>★ Treasurer</span>}</div>
                   <div style={{fontSize:12,color:"rgba(255,255,255,0.4)",marginTop:2}}>{sel.count} total entries</div>
                 </div>
               </div>
@@ -1248,6 +1339,11 @@ export default function App() {
   const [showPin,setShowPin]         = useState(false);
   const [treasurerPin,setTreasurerPin] = useState(""); // loaded from Sheets — never hardcoded
   const [pendingView,setPendingView]  = useState(null);
+  // Member PIN auth
+  const [memberPins,setMemberPins]     = useState({}); // {name: pin} loaded from Sheets
+  const [treasurerMembers,setTreasurerMembers] = useState([]); // names with role=Treasurer in Sheets
+  const [verifiedMember,setVerifiedMember] = useState(null); // name of PIN-verified member
+  const [showMemberPin,setShowMemberPin]   = useState(false);
   const [showMemberPanel,setShowMemberPanel] = useState(false);
   const [showVendorPanel,setShowVendorPanel] = useState(false);
   const [groupedView,setGroupedView] = useState(false);
@@ -1333,6 +1429,8 @@ export default function App() {
         setCounters(d.counters||{});
         if(d.members&&d.members.length>0)setMembers(d.members);
         if(d.pin)setTreasurerPin(String(d.pin));
+        if(d.memberPins)setMemberPins(d.memberPins); // {name: "1234"} from Members tab
+        if(d.treasurerMembers)setTreasurerMembers(d.treasurerMembers);
         setDbReady(true);
         addLog(`✓ Loaded ${d.entries?.length||0} entries, ${d.events?.length||0} events, ${d.members?.length||0} members, PIN ${d.pin?"set":"NOT SET"}`, "ok");
       }else{
@@ -1382,6 +1480,9 @@ export default function App() {
       return;
     }
     if(form.date>todayStr()){showToast("⚠ Date is in the future — please check","warning");addLog("Warning: future date "+form.date,"warn");}
+    // 30-day backdating restriction
+    const cutoff=new Date(); cutoff.setDate(cutoff.getDate()-30);
+    if(new Date(form.date)<cutoff){showToast("❌ Date is more than 30 days in the past. Contact the Treasurer for older entries.","error");addLog("Submit blocked — date too old: "+form.date,"warn");return;}
     setSubmitting(true);
     addLog(`→ Submitting expense: ${form.categoryCode} ₹${parsedAmt} by ${form.member}`,"info");
     const evObj=events.find(e=>e.id===form.eventId);
@@ -1420,6 +1521,7 @@ export default function App() {
     setForm({member:"",amount:"",categoryCode:"",purpose:"",date:todayStr(),upiId:"",notes:"",eventId:"",subCategory:"",txnRef:"",chequeNo:"",payeeDetails:""});
     setFieldErrors({});
     setReceiptDataUrl(null);resetReceiptInput();setInvoiceDataUrl(null);resetInvoiceInput();setSubmitting(false);
+    setVerifiedMember(null); // require PIN re-verification for next submission
     showToast(`✅ Expense submitted! ID: ${txnId}`);
     addLog(`✓ Entry created: ${txnId} ₹${parsedAmt}`,"ok");
     if(scriptUrl){
@@ -1473,6 +1575,12 @@ export default function App() {
       setTimeout(()=>setSyncStatus(null),3000);
     }else{addLog("No DB connected — entry saved locally only","warn");}
   };
+
+  // Gold highlight for treasurer member names
+  const isTreasurerMember=(name)=>treasurerMembers.includes(name);
+  const MemberName=({name,style={}})=>isTreasurerMember(name)
+    ?<span style={{color:"#fbbf24",fontWeight:700,...style}}>{name} <span style={{fontSize:"0.75em",opacity:0.8}}>★</span></span>
+    :<span style={style}>{name}</span>;
 
   const allYears=[...new Set(entries.map(e=>new Date(e.date).getFullYear()))].sort((a,b)=>b-a);
   const filtered=entries.filter(e=>{
@@ -2129,13 +2237,22 @@ export default function App() {
       <div className="content-wrap" style={{maxWidth:1100,margin:"0 auto",padding:"30px 24px"}}>
 
         {/* ════ SUBMIT ════ */}
-        {view==="submit" && (
+        {view==="submit" && !verifiedMember && (
+          <MemberPinModal
+            members={members}
+            memberPins={memberPins}
+            onSuccess={name=>{setVerifiedMember(name);setForm(f=>({...f,member:name}));}}
+            onClose={()=>setView("submit")}
+          />
+        )}
+        {view==="submit" && verifiedMember && (
           <div className="form-grid" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:26,alignItems:"start"}}>
             <div>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
                 <div>
                   <h2 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:27,color:"#fbbf24",margin:"0 0 4px"}}>Submit Expense</h2>
                   <p style={{color:"rgba(255,255,255,0.4)",fontSize:13,margin:0}}>Attach a receipt or screenshot for your records</p>
+                  {verifiedMember&&<div style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:6,background:isTreasurerMember(verifiedMember)?"rgba(251,191,36,0.1)":"rgba(16,185,129,0.1)",border:`1px solid ${isTreasurerMember(verifiedMember)?"rgba(251,191,36,0.4)":"rgba(16,185,129,0.3)"}`,borderRadius:8,padding:"4px 10px",fontSize:12,color:isTreasurerMember(verifiedMember)?"#fbbf24":"#10b981",fontWeight:700}}>✓ Verified: {verifiedMember}{isTreasurerMember(verifiedMember)&&<span style={{fontSize:10,opacity:0.8}}> ★ Treasurer</span>} <button onClick={()=>{setVerifiedMember(null);setForm(f=>({...f,member:""}));}} style={{background:"none",border:"none",color:"rgba(255,255,255,0.3)",cursor:"pointer",fontSize:11,padding:0,marginLeft:2}}>switch</button></div>}
                 </div>
                 <button onClick={()=>setShowBulk(true)} style={{flexShrink:0,background:"linear-gradient(135deg,#3730a3,#4f46e5)",color:"#fff",border:"none",borderRadius:11,padding:"9px 15px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,display:"flex",alignItems:"center",gap:7,boxShadow:"0 4px 16px rgba(99,102,241,0.4)",whiteSpace:"nowrap"}}>
                   <span style={{fontSize:15}}>📥</span> Bulk Import
@@ -2601,7 +2718,7 @@ export default function App() {
                             <div style={{width:28,height:28,borderRadius:"50%",background:"linear-gradient(135deg,#1d4ed8,#3b82f6)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,flexShrink:0}}>
                               {e.member.split(" ").map(w=>w[0]).slice(0,2).join("")}
                             </div>
-                            <span style={{fontSize:13,fontWeight:600,color:"rgba(255,255,255,0.8)"}}>{e.member.split(" ")[0]}</span>
+                            <MemberName name={e.member.split(" ")[0]} style={{fontSize:13,fontWeight:600}} />
                           </div>
                         </td>
                         <td style={{padding:"12px 15px"}}>
@@ -2892,6 +3009,7 @@ export default function App() {
           <MemberBalanceSheet
             entries={entries}
             members={members}
+            treasurerMembers={treasurerMembers}
             onBatchReimburse={async(ids, payRef)=>{
               setEntries(p=>p.map(e=>ids.includes(e.id)?{...e,status:"Reimbursed",notes:(e.notes?e.notes+"\n":"")+`Reimbursed via ${payRef||"payment"} on ${todayStr()}`}:e));
               showToast(`✅ ${ids.length} entr${ids.length===1?"y":"ies"} marked Reimbursed`);
