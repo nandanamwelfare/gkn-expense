@@ -1,7 +1,7 @@
 {
-  "name": "nandanam-expense-tracker",
+  "name": "nandanam-v20",
   "private": true,
-  "version": "1.0.0",
+  "version": "20.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

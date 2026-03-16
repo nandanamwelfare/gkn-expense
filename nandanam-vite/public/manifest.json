@@ -1,13 +1,16 @@
 {
-  "name": "Nandanam Expenses",
+  "name": "Nandanam Expenses v20",
   "short_name": "Nandanam",
-  "description": "Gokul's Nandanam – Welfare & Expense Management",
+  "description": "Gokul's Nandanam \u2013 Welfare & Expense Management",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#0a0e1a",
   "theme_color": "#0a0e1a",
-  "categories": ["finance", "utilities"],
+  "categories": [
+    "finance",
+    "utilities"
+  ],
   "icons": [
     {
       "src": "/icons/icon-192.png",

@@ -1,7 +1,7 @@
-// Nandanam Expenses — Service Worker v13
+// Nandanam Expenses — Service Worker v20.1
 // Network-first strategy: always fetches fresh on deploy, falls back to cache offline
 
-const CACHE_NAME = 'nandanam-v13';
+const CACHE_NAME = 'nandanam-v20';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

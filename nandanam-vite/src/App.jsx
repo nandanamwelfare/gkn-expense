@@ -1,3 +1,7 @@
+// Nandanam Expense Manager — v20.1
+// Gokul's Nandanam · Welfare & Expense Management
+// Built with React + Vite · Backend: Google Apps Script + Sheets
+
 import { useState, useEffect, useRef } from "react";
 
 // ── Responsive breakpoints ───────────────────────────────────────────
@@ -140,6 +144,26 @@ const detectRecurring = (purpose="",notes="") => {
 const todayStr  = () => new Date().toISOString().split("T")[0];
 const fmt       = (n) => `₹${Number(n||0).toLocaleString("en-IN")}`;
 const MONTHS    = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+/* ── Duplicate detection ─────────────────────────────────────────────────── */
+const checkSingleDup = (entries, form) => {
+  if (!form.amount || !form.date || !form.member) return null;
+  const amt   = Number(form.amount);
+  const formDt = new Date(form.date).getTime();
+  for (const e of entries) {
+    if (e.member !== form.member) continue;
+    if (Number(e.amount) !== amt)  continue;
+    const eDt  = new Date(e.date).getTime();
+    const days = Math.abs(formDt - eDt) / 86400000;
+    const sameVendor = form.upiId && e.upiId && e.upiId.toLowerCase().includes(form.upiId.toLowerCase().split("@")[0]);
+    if (days <= 0 && sameVendor && e.categoryCode === form.categoryCode)
+      return { level:"hard", txnId:e.txnId, msg:`Exact duplicate of ${e.txnId} on ${e.date}` };
+    if (days <= 3 && e.categoryCode === form.categoryCode)
+      return { level:"soft", txnId:e.txnId, msg:`Similar to ${e.txnId} — same amount within 3 days` };
+  }
+  return null;
+};
+
+
 const pad5      = (n) => String(n).padStart(5,"0");
 const genId     = () => `E${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2,5).toUpperCase()}`;
 const evTag    = (name) => name.replace(/[^a-zA-Z0-9]/g,"").toUpperCase().slice(0,8);
@@ -400,263 +424,463 @@ function CreateEventModal({onSave,onClose}) {
 /* ═══════════════════════════════════════════════════════════
    BULK IMPORT MODAL
 ═══════════════════════════════════════════════════════════ */
-function BulkImportModal({members,events,onImport,onClose}) {
-  const [step,setStep]         = useState("upload"); // upload | review
-  const [rows,setRows]         = useState([]);
-  const [member,setMember]     = useState("");
-  const [extracting,setExtracting] = useState(false);
-  const [dragOver,setDragOver] = useState(false);
-  const [fileNames,setFileNames] = useState([]);
-  const fileRef = useRef();
-
+function BulkImportModal({members, events, entries: existingEntries, verifiedMember, onImport, onClose}) {
+  const [member,    setMember]    = useState(verifiedMember || "");
+  const [rows,      setRows]      = useState([]);
+  const [vendor,    setVendor]    = useState("");
+  const [defCat,    setDefCat]    = useState("GNMI");
+  const [rowCount,  setRowCount]  = useState(3);
+  const [dupChecked,setDupChecked]= useState(false);
   const openEvents = events.filter(e=>e.status==="open");
 
-  const INP={width:"100%",padding:"9px 13px",borderRadius:9,border:"1.5px solid rgba(255,255,255,0.12)",background:"rgba(255,255,255,0.06)",color:"#fff",fontSize:13,fontFamily:"'DM Sans',sans-serif",outline:"none",boxSizing:"border-box"};
+  const INP={width:"100%",padding:"9px 13px",borderRadius:9,border:"1.5px solid rgba(255,255,255,0.12)",
+    background:"rgba(255,255,255,0.06)",color:"#fff",fontSize:13,
+    fontFamily:"'DM Sans',sans-serif",outline:"none",boxSizing:"border-box"};
 
-  const toBase64=(file)=>new Promise((res,rej)=>{
-    const r=new FileReader();
-    r.onload=e=>res(e.target.result.split(",")[1]);
-    r.onerror=rej;
-    r.readAsDataURL(file);
-  });
+  /* ── Duplicate Detection ─────────────────────────────────────────────── */
+  const EXACT_DAYS  = 0;   // same date + amount + vendor = exact dup
+  const SOFT_DAYS   = 3;   // within 3 days + same amount + same cat = probable dup
+  const SUSPICIOUS  = 7;   // within 7 days + same amount = suspicious
 
-  const extractFiles=async(files)=>{
-    if(!files?.length)return;
-    setExtracting(true);
-    setFileNames([...files].map(f=>f.name));
-    try {
-      // Send all files to Apps Script → Gemini (free, no API key needed)
-      const filePayloads=[];
-      for(const file of files){
-        const b64=await toBase64(file);
-        filePayloads.push({base64:b64, mimeType:file.type, name:file.name});
-      }
-      const BULK_DEFAULT_URL="https://script.google.com/macros/s/AKfycby-4LzBzK5cjDd6daiaIXlmAFWSPAKSKILqpH8sNybWB9mKittFY8rHUsJvQfO5rqHJ/exec";
-      const scriptUrl=(()=>{try{return localStorage.getItem("nandanam_script_url")||BULK_DEFAULT_URL;}catch{return BULK_DEFAULT_URL;}})();
+  const checkDup = (row, rowIndex) => {
+    if (!row.amount || !row.date) return null;
+    const amt   = Number(row.amount);
+    const rowDt = new Date(row.date).getTime();
 
-      const resp=await fetch(scriptUrl,{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({action:"extractBulk",files:filePayloads})
-      });
-      const d=await resp.json();
-      if(!d.success) throw new Error(d.error||"Extraction failed");
-      const extracted=d.data||[];
-      if(!Array.isArray(extracted)||extracted.length===0){
-        setExtracting(false);setFileNames([]);
-        alert("No transactions found in the uploaded file(s). Try a clearer image.");
-        return;
-      }
-      setRows(extracted.map((r,i)=>({
-        _id:i, checked:true,
-        amount:r.amount||"", date:r.date||todayStr(),
-        upiId:r.upiId||"", purpose:r.purpose||"",
-        txnRef:r.txnRef||"",
-        categoryCode:"GNMI", eventId:"", subCategory:"",
-      })));
-      setStep("review");
-    } catch(e){
-      alert("Extraction failed: "+e.message);
+    // 1. Check against existing saved entries
+    for (const e of (existingEntries||[])) {
+      if (Number(e.amount) !== amt) continue;
+      const eDt   = new Date(e.date).getTime();
+      const days  = Math.abs(rowDt - eDt) / 86400000;
+      const sameVendor = vendor && e.upiId && e.upiId.toLowerCase().includes(vendor.toLowerCase());
+
+      if (days <= EXACT_DAYS && sameVendor && e.categoryCode === row.categoryCode)
+        return { level:"hard", msg:`Exact duplicate of ${e.txnId} (${e.date})` };
+      if (days <= SOFT_DAYS && e.categoryCode === row.categoryCode)
+        return { level:"soft", msg:`Probable dup of ${e.txnId} (${fmt(amt)} · ${e.date})` };
+      if (days <= SUSPICIOUS && sameVendor)
+        return { level:"warn", msg:`Same vendor+amount within 7 days (${e.txnId})` };
     }
-    setExtracting(false);
+
+    // 2. Check against other rows in THIS batch (e.g. same screenshot added twice)
+    for (let i = 0; i < rows.length; i++) {
+      if (i === rowIndex) continue;
+      const other = rows[i];
+      if (!other.amount || !other.date) continue;
+      if (Number(other.amount) !== amt) continue;
+      const otherDt = new Date(other.date).getTime();
+      const days    = Math.abs(rowDt - otherDt) / 86400000;
+      if (days <= EXACT_DAYS && other.categoryCode === row.categoryCode)
+        return { level:"hard", msg:`Same as Row ${i+1} in this batch — possible duplicate!` };
+      if (days <= SOFT_DAYS && other.categoryCode === row.categoryCode)
+        return { level:"soft", msg:`Similar to Row ${i+1} (same amount within 3 days)` };
+    }
+    return null;
   };
 
-  const handleFiles=(files)=>extractFiles([...files].filter(f=>f.type.startsWith("image/")||f.type==="application/pdf"));
-
-  const updateRow=(id,key,val)=>setRows(r=>r.map(x=>x._id===id?{...x,[key]:val}:x));
-
-  const toBase64File=(file)=>new Promise((res,rej)=>{
-    const r=new FileReader();
-    r.onload=e=>res(e.target.result);
-    r.onerror=rej;
-    r.readAsDataURL(file);
+  /* ── Row helpers ─────────────────────────────────────────────────────── */
+  const blankRow = (id) => ({
+    _id: id, checked: true,
+    date: todayStr(), amount: "", upiId: vendor || "",
+    purpose: vendor ? `${vendor} payment` : "",
+    categoryCode: defCat, eventId: "", subCategory: "",
+    receiptDataUrl: null, invoiceDataUrl: null,
+    overrideDup: false,
   });
 
-  const attachRowFile=async(rowId,fileType,file)=>{
-    if(!file)return;
-    const dataUrl=await toBase64File(file);
-    updateRow(rowId,fileType==="receipt"?"receiptDataUrl":"invoiceDataUrl",dataUrl);
-    updateRow(rowId,fileType==="receipt"?"receiptFile":"invoiceFile",file);
+  const initRows = (n, cat, v) =>
+    Array.from({length: n}, (_, i) => ({
+      ...blankRow(Date.now() + i),
+      upiId: v || "",
+      purpose: v ? `${v} payment` : "",
+      categoryCode: cat,
+    }));
+
+  // When user clicks "Create Template"
+  const handleCreateTemplate = () => {
+    setRows(initRows(rowCount, defCat, vendor));
+    setDupChecked(false);
   };
 
-  const handleImport=()=>{
-    if(!member){alert("Please select a member first.");return;}
-    const toAdd=rows.filter(r=>r.checked&&r.amount&&r.categoryCode);
-    if(!toAdd.length){alert("No valid rows selected.");return;}
-    onImport(toAdd,member);
+  const updateRow = (id, key, val) =>
+    setRows(r => r.map(x => x._id === id ? {...x, [key]: val, overrideDup: key==="overrideDup"?val:x.overrideDup} : x));
+
+  const cloneRow = (row) => {
+    const newRow = {...row, _id: Date.now(), amount: "", date: todayStr(),
+      receiptDataUrl: null, invoiceDataUrl: null, overrideDup: false};
+    setRows(prev => {
+      const idx = prev.findIndex(r => r._id === row._id);
+      const next = [...prev];
+      next.splice(idx + 1, 0, newRow);
+      return next;
+    });
+  };
+
+  const removeRow = (id) => setRows(r => r.filter(x => x._id !== id));
+
+  const addBlankRow = () =>
+    setRows(prev => [...prev, blankRow(Date.now())]);
+
+  const toBase64File = (file) => new Promise((res,rej)=>{
+    const r = new FileReader();
+    r.onload = e => res(e.target.result);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+  const attachFile = async (rowId, field, file) => {
+    if (!file) return;
+    const dataUrl = await toBase64File(file);
+    updateRow(rowId, field, dataUrl);
+  };
+
+  /* ── Apply vendor / category to all rows ─────────────────────────────── */
+  const applyVendorToAll = () => {
+    setRows(r => r.map(row => ({
+      ...row,
+      upiId: vendor || row.upiId,
+      purpose: vendor ? `${vendor} payment` : row.purpose,
+      categoryCode: defCat,
+    })));
+  };
+
+  /* ── Import ──────────────────────────────────────────────────────────── */
+  const handleImport = () => {
+    if (!member) { alert("Select a member first."); return; }
+    // Block hard duplicates unless overridden
+    const hardBlocked = rows.filter(r => {
+      if (!r.checked || !r.amount) return false;
+      const d = checkDup(r, rows.indexOf(r));
+      return d?.level === "hard" && !r.overrideDup;
+    });
+    if (hardBlocked.length > 0) {
+      alert(`${hardBlocked.length} row(s) have exact duplicates. Review the red warnings and tick "Override" if intentional.`);
+      return;
+    }
+    const valid = rows.filter(r => r.checked && r.amount && Number(r.amount) > 0 && r.categoryCode);
+    if (!valid.length) { alert("No valid rows to import."); return; }
+    onImport(valid, member);
     onClose();
   };
 
-  const checkedCount=rows.filter(r=>r.checked).length;
+  const checkedCount = rows.filter(r => r.checked && r.amount && Number(r.amount) > 0).length;
+  const totalAmt     = rows.filter(r => r.checked && r.amount).reduce((s,r)=>s+Number(r.amount||0),0);
 
+  const hasRows = rows.length > 0;
+
+  /* ── Render ──────────────────────────────────────────────────────────── */
   return (
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.82)",zIndex:1100,display:"flex",alignItems:"center",justifyContent:"center",padding:20,overflowY:"auto"}}>
-      <div style={{background:"#0a1628",border:"1px solid rgba(99,102,241,0.4)",borderRadius:22,width:"100%",maxWidth:step==="review"?1060:520,boxShadow:"0 24px 80px rgba(0,0,0,0.7)",maxHeight:"90vh",display:"flex",flexDirection:"column"}}>
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:1100,
+      display:"flex",alignItems:"center",justifyContent:"center",padding:20,overflowY:"auto"}}>
+      <div style={{background:"#0a1628",border:"1px solid rgba(99,102,241,0.4)",borderRadius:22,
+        width:"100%",maxWidth:hasRows?1100:560,boxShadow:"0 24px 80px rgba(0,0,0,0.7)",
+        maxHeight:"92vh",display:"flex",flexDirection:"column",transition:"max-width 0.3s ease"}}>
 
-        {/* Header */}
-        <div style={{padding:"22px 28px 18px",borderBottom:"1px solid rgba(255,255,255,0.07)",flexShrink:0}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        {/* ── Header ── */}
+        <div style={{padding:"20px 26px 16px",borderBottom:"1px solid rgba(255,255,255,0.07)",flexShrink:0}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
             <div>
-              <h3 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:24,color:"#818cf8",margin:0}}>📥 Bulk Import</h3>
-              <p style={{color:"rgba(255,255,255,0.35)",fontSize:12,margin:"4px 0 0"}}>Upload a bank/UPI statement PDF or multiple screenshots</p>
+              <h3 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:24,color:"#818cf8",margin:"0 0 3px"}}>
+                📥 Bulk Entry
+              </h3>
+              <p style={{color:"rgba(255,255,255,0.35)",fontSize:12,margin:0}}>
+                Template · Clone rows · Duplicate detection — no AI needed
+              </p>
             </div>
-            <button onClick={onClose} style={{background:"none",border:"none",color:"rgba(255,255,255,0.4)",cursor:"pointer",padding:4}}><Icon n="x" s={18}/></button>
+            <button onClick={onClose} style={{background:"none",border:"none",color:"rgba(255,255,255,0.4)",cursor:"pointer",padding:4}}>
+              <Icon n="x" s={18}/>
+            </button>
           </div>
-          {step==="review"&&(
-            <div style={{display:"flex",gap:8,marginTop:14,flexWrap:"wrap",alignItems:"center"}}>
-              <div style={{background:"rgba(99,102,241,0.12)",border:"1px solid rgba(99,102,241,0.3)",borderRadius:8,padding:"5px 13px",fontSize:12,color:"#818cf8",fontWeight:700}}>
-                {rows.length} transactions found · {checkedCount} selected
-              </div>
-              {fileNames.map((n,i)=><div key={i} style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,padding:"5px 11px",fontSize:11,color:"rgba(255,255,255,0.45)"}}>{n}</div>)}
-              <button onClick={()=>{setStep("upload");setRows([]);setFileNames([]);}} style={{background:"none",border:"1px solid rgba(255,255,255,0.15)",color:"rgba(255,255,255,0.45)",borderRadius:8,padding:"5px 11px",fontSize:11,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>← Re-upload</button>
-            </div>
-          )}
         </div>
 
-        {/* Body */}
-        <div style={{overflowY:"auto",flex:1,padding:"22px 28px"}}>
+        {/* ── Body ── */}
+        <div style={{overflowY:"auto",flex:1,padding:"20px 26px"}}>
 
-          {/* STEP: UPLOAD */}
-          {step==="upload"&&(
-            <div>
-              {/* Member selector */}
-              <div style={{marginBottom:18}}>
-                <label style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.45)",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.06em"}}>Member Name *</label>
-                <select value={member} onChange={e=>setMember(e.target.value)} style={INP}>
-                  <option value="">Select member for all transactions</option>
-                  {members.map(m=><option key={m}>{m}</option>)}
-                </select>
-              </div>
-
-              {/* Drop zone */}
-              <div
-                onDragOver={e=>{e.preventDefault();setDragOver(true);}}
-                onDragLeave={()=>setDragOver(false)}
-                onDrop={e=>{e.preventDefault();setDragOver(false);handleFiles(e.dataTransfer.files);}}
-                onClick={()=>!extracting&&fileRef.current?.click()}
-                style={{border:`2px dashed ${dragOver?"#818cf8":"rgba(99,102,241,0.35)"}`,borderRadius:16,padding:"44px 24px",textAlign:"center",cursor:extracting?"default":"pointer",background:dragOver?"rgba(99,102,241,0.08)":"rgba(99,102,241,0.03)",transition:"all 0.2s",minHeight:220,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14}}
-              >
-                {extracting?(
-                  <>
-                    <div style={{width:56,height:56,borderRadius:"50%",background:"rgba(99,102,241,0.15)",display:"flex",alignItems:"center",justifyContent:"center"}}>
-                      <div style={{width:24,height:24,border:"3px solid rgba(129,140,248,0.3)",borderTopColor:"#818cf8",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
-                    </div>
-                    <div style={{color:"#818cf8",fontWeight:700,fontSize:15}}>Analysing with AI...</div>
-                    <div style={{color:"rgba(255,255,255,0.3)",fontSize:13}}>Reading all transactions from your document</div>
-                  </>
-                ):(
-                  <>
-                    <div style={{width:62,height:62,background:"rgba(99,102,241,0.12)",borderRadius:16,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>📄</div>
-                    <div style={{color:"#818cf8",fontWeight:700,fontSize:16}}>Drop your statement here</div>
-                    <div style={{color:"rgba(255,255,255,0.35)",fontSize:13,lineHeight:1.6}}>
-                      Supports <strong style={{color:"rgba(255,255,255,0.6)"}}>PDF bank statements</strong> and <strong style={{color:"rgba(255,255,255,0.6)"}}>multiple UPI screenshots</strong><br/>
-                      PhonePe · GPay · Paytm · Bank PDFs · Any UPI app
-                    </div>
-                    <div style={{background:"rgba(99,102,241,0.12)",border:"1px solid rgba(99,102,241,0.25)",borderRadius:10,padding:"8px 18px",color:"#818cf8",fontSize:13,fontWeight:600}}>Browse Files</div>
-                  </>
-                )}
-                <input ref={fileRef} type="file" accept="image/*,application/pdf" multiple style={{display:"none"}} onChange={e=>handleFiles(e.target.files)}/>
-              </div>
-
-              <div style={{marginTop:16,background:"rgba(251,191,36,0.06)",border:"1px solid rgba(251,191,36,0.15)",borderRadius:10,padding:"11px 15px"}}>
-                <div style={{fontSize:12,color:"#fbbf24",fontWeight:700,marginBottom:5}}>💡 Tips for best results</div>
-                <ul style={{margin:0,paddingLeft:16,color:"rgba(255,255,255,0.45)",fontSize:12,lineHeight:2}}>
-                  <li>Use the official statement PDF from your bank app (PhonePe, GPay, etc.)</li>
-                  <li>For screenshots, select all of them at once — AI reads them together</li>
-                  <li>In the review step, attach a 📸 UPI screenshot and/or 🧾 bill/invoice per transaction</li>
-                  <li>You can edit category, purpose & amount before importing</li>
-                </ul>
-              </div>
+          {/* ── SETUP PANEL ── */}
+          <div style={{background:"rgba(99,102,241,0.06)",border:"1px solid rgba(99,102,241,0.2)",
+            borderRadius:14,padding:"16px 18px",marginBottom:20}}>
+            <div style={{fontSize:11,fontWeight:800,color:"rgba(129,140,248,0.7)",textTransform:"uppercase",
+              letterSpacing:"0.09em",marginBottom:14}}>
+              ① Setup Template
             </div>
-          )}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr auto auto",gap:12,alignItems:"flex-end",flexWrap:"wrap"}}>
 
-          {/* STEP: REVIEW */}
-          {step==="review"&&(
-            <div>
-              {/* Member selector in review too */}
-              <div style={{marginBottom:16,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-                <div style={{flex:"0 0 220px"}}>
-                  <label style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.45)",display:"block",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.06em"}}>Member for all rows</label>
-                  <select value={member} onChange={e=>setMember(e.target.value)} style={{...INP,width:"auto",minWidth:200}}>
+              {/* Member */}
+              <div>
+                <label style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.4)",display:"block",
+                  marginBottom:5,textTransform:"uppercase",letterSpacing:"0.06em"}}>Member *</label>
+                {verifiedMember ? (
+                  <div style={{...INP,background:"rgba(16,185,129,0.08)",border:"1.5px solid rgba(16,185,129,0.35)",
+                    color:"#10b981",fontWeight:700,display:"flex",alignItems:"center",gap:6,cursor:"default"}}>
+                    ✓ {verifiedMember}
+                  </div>
+                ) : (
+                  <select value={member} onChange={e=>setMember(e.target.value)} style={INP}>
                     <option value="">Select member</option>
                     {members.map(m=><option key={m}>{m}</option>)}
                   </select>
+                )}
+              </div>
+
+              {/* Vendor */}
+              <div>
+                <label style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.4)",display:"block",
+                  marginBottom:5,textTransform:"uppercase",letterSpacing:"0.06em"}}>Vendor / Payee</label>
+                <input value={vendor} onChange={e=>setVendor(e.target.value)}
+                  placeholder="e.g. Choudary Traders"
+                  style={INP}/>
+              </div>
+
+              {/* Category */}
+              <div>
+                <label style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.4)",display:"block",
+                  marginBottom:5,textTransform:"uppercase",letterSpacing:"0.06em"}}>Default Category</label>
+                <select value={defCat} onChange={e=>setDefCat(e.target.value)} style={INP}>
+                  {CATEGORIES.map(c=><option key={c.code} value={c.code}>{c.icon} {c.label}</option>)}
+                </select>
+              </div>
+
+              {/* Row count */}
+              <div>
+                <label style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.4)",display:"block",
+                  marginBottom:5,textTransform:"uppercase",letterSpacing:"0.06em"}}>Rows</label>
+                <select value={rowCount} onChange={e=>setRowCount(Number(e.target.value))}
+                  style={{...INP,width:72}}>
+                  {[1,2,3,4,5,6,8,10].map(n=><option key={n} value={n}>{n}</option>)}
+                </select>
+              </div>
+
+              {/* Create / Apply buttons */}
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                <button onClick={handleCreateTemplate}
+                  style={{background:"linear-gradient(135deg,#4f46e5,#818cf8)",color:"#fff",border:"none",
+                    borderRadius:10,padding:"9px 16px",fontWeight:800,fontSize:13,cursor:"pointer",
+                    fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap",boxShadow:"0 4px 14px rgba(99,102,241,0.4)"}}>
+                  {hasRows ? "↺ Rebuild" : "➕ Create Template"}
+                </button>
+                {hasRows && (
+                  <button onClick={applyVendorToAll}
+                    style={{background:"rgba(99,102,241,0.12)",border:"1px solid rgba(99,102,241,0.3)",
+                      color:"#818cf8",borderRadius:10,padding:"7px 14px",fontWeight:700,fontSize:12,
+                      cursor:"pointer",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap"}}>
+                    Apply to All
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Info strip */}
+            <div style={{marginTop:14,display:"flex",gap:8,flexWrap:"wrap"}}>
+              {[
+                {col:"#818cf8", icon:"📋", txt:"Fill amounts & dates per row"},
+                {col:"#10b981", icon:"📋", txt:"Clone any row for same vendor different date"},
+                {col:"#f59e0b", icon:"⚠",  txt:"Duplicate detection runs on every row"},
+              ].map(({col,icon,txt})=>(
+                <div key={txt} style={{display:"flex",alignItems:"center",gap:5,
+                  background:`${col}10`,border:`1px solid ${col}25`,borderRadius:8,
+                  padding:"5px 11px",fontSize:11,color:`${col}`,fontWeight:600}}>
+                  {icon} {txt}
                 </div>
-                <div style={{marginTop:18,display:"flex",gap:8}}>
-                  <button onClick={()=>setRows(r=>r.map(x=>({...x,checked:true})))} style={{background:"rgba(16,185,129,0.1)",border:"1px solid rgba(16,185,129,0.3)",color:"#10b981",borderRadius:8,padding:"6px 12px",fontSize:12,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:600}}>Select All</button>
-                  <button onClick={()=>setRows(r=>r.map(x=>({...x,checked:false})))} style={{background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.25)",color:"#ef4444",borderRadius:8,padding:"6px 12px",fontSize:12,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:600}}>Deselect All</button>
+              ))}
+            </div>
+          </div>
+
+          {/* ── TABLE ── */}
+          {hasRows && (
+            <div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div style={{fontSize:11,color:"rgba(255,255,255,0.35)",fontWeight:600}}>
+                  {rows.length} rows · {checkedCount} selected · <span style={{color:"#fbbf24",fontWeight:800}}>{fmt(totalAmt)}</span>
+                </div>
+                <div style={{display:"flex",gap:7}}>
+                  <button onClick={()=>setRows(r=>r.map(x=>({...x,checked:true})))}
+                    style={{background:"rgba(16,185,129,0.08)",border:"1px solid rgba(16,185,129,0.25)",
+                      color:"#10b981",borderRadius:8,padding:"5px 11px",fontSize:11,fontWeight:700,
+                      cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>✓ All</button>
+                  <button onClick={()=>setRows(r=>r.map(x=>({...x,checked:false})))}
+                    style={{background:"rgba(239,68,68,0.06)",border:"1px solid rgba(239,68,68,0.2)",
+                      color:"#ef4444",borderRadius:8,padding:"5px 11px",fontSize:11,fontWeight:700,
+                      cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>✗ None</button>
+                  <button onClick={addBlankRow}
+                    style={{background:"rgba(99,102,241,0.1)",border:"1px solid rgba(99,102,241,0.3)",
+                      color:"#818cf8",borderRadius:8,padding:"5px 13px",fontSize:11,fontWeight:700,
+                      cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:4}}>
+                    <Icon n="plus" s={11}/> Row
+                  </button>
                 </div>
               </div>
 
-              <div className="tbl-wrap" style={{overflowX:"auto"}}>
-                <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",minWidth:900}}>
                   <thead>
-                    <tr style={{borderBottom:"1px solid rgba(99,102,241,0.2)"}}>
-                      {["","Date","Amount (₹)","Payee / UPI","Purpose","Category","Event","📸 UPI Proof","🧾 Bill/Invoice"].map(h=>(
-                        <th key={h} style={{padding:"9px 10px",textAlign:"left",fontSize:10,fontWeight:700,color:"rgba(129,140,248,0.6)",textTransform:"uppercase",letterSpacing:"0.07em",whiteSpace:"nowrap"}}>{h}</th>
+                    <tr style={{borderBottom:"1px solid rgba(99,102,241,0.25)"}}>
+                      {["","#","Date","Amount (₹)","Vendor / UPI","Purpose","Category","📸 UPI","🧾 Bill","⚠ Dup","Actions"].map(h=>(
+                        <th key={h} style={{padding:"8px 8px",textAlign:"left",fontSize:9,fontWeight:800,
+                          color:"rgba(129,140,248,0.55)",textTransform:"uppercase",letterSpacing:"0.08em",
+                          whiteSpace:"nowrap"}}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map(row=>{
-                      const cat=catByCode(row.categoryCode);
+                    {rows.map((row, rowIdx) => {
+                      const dup  = checkDup(row, rowIdx);
+                      const cat  = catByCode(row.categoryCode);
+                      const rowBg = dup?.level==="hard" && !row.overrideDup
+                        ? "rgba(239,68,68,0.07)"
+                        : dup?.level==="soft" && !row.overrideDup
+                          ? "rgba(245,158,11,0.05)"
+                          : "transparent";
+                      const rowBorder = dup?.level==="hard" && !row.overrideDup
+                        ? "2px solid rgba(239,68,68,0.5)"
+                        : "2px solid transparent";
+
                       return (
-                        <tr key={row._id} style={{borderBottom:"1px solid rgba(255,255,255,0.04)",background:row.checked?"transparent":"rgba(255,255,255,0.01)",opacity:row.checked?1:0.4,transition:"all 0.15s"}}>
-                          <td style={{padding:"8px 10px"}}>
-                            <input type="checkbox" checked={row.checked} onChange={e=>updateRow(row._id,"checked",e.target.checked)} style={{width:15,height:15,cursor:"pointer",accentColor:"#818cf8"}}/>
+                        <tr key={row._id} style={{borderBottom:"1px solid rgba(255,255,255,0.04)",
+                          background:rowBg,borderLeft:rowBorder,
+                          opacity:row.checked?1:0.4,transition:"all 0.15s"}}>
+
+                          {/* Checkbox */}
+                          <td style={{padding:"7px 8px",width:24}}>
+                            <input type="checkbox" checked={row.checked}
+                              onChange={e=>updateRow(row._id,"checked",e.target.checked)}
+                              style={{width:14,height:14,accentColor:"#818cf8",cursor:"pointer"}}/>
                           </td>
-                          <td style={{padding:"8px 6px"}}>
-                            <input type="date" value={row.date} onChange={e=>updateRow(row._id,"date",e.target.value)} style={{...INP,padding:"5px 8px",fontSize:12,width:130}}/>
+
+                          {/* Row number */}
+                          <td style={{padding:"7px 6px",fontSize:11,color:"rgba(255,255,255,0.2)",
+                            fontWeight:700,width:24,textAlign:"center"}}>{rowIdx+1}</td>
+
+                          {/* Date */}
+                          <td style={{padding:"7px 5px"}}>
+                            <input type="date" value={row.date}
+                              onChange={e=>updateRow(row._id,"date",e.target.value)}
+                              style={{...INP,padding:"5px 7px",fontSize:12,width:130}}/>
                           </td>
-                          <td style={{padding:"8px 6px"}}>
-                            <input type="number" value={row.amount} onChange={e=>updateRow(row._id,"amount",e.target.value)} style={{...INP,padding:"5px 8px",fontSize:13,width:90,fontWeight:700,color:"#fbbf24"}}/>
+
+                          {/* Amount */}
+                          <td style={{padding:"7px 5px"}}>
+                            <input type="number" value={row.amount} placeholder="0"
+                              onChange={e=>updateRow(row._id,"amount",e.target.value)}
+                              style={{...INP,padding:"5px 7px",fontSize:13,width:88,
+                                fontWeight:800,color:"#fbbf24",
+                                borderColor:!row.amount?"rgba(239,68,68,0.4)":undefined}}/>
                           </td>
-                          <td style={{padding:"8px 6px"}}>
-                            <input value={row.upiId} onChange={e=>updateRow(row._id,"upiId",e.target.value)} placeholder="UPI / payee" style={{...INP,padding:"5px 8px",fontSize:12,width:140}}/>
+
+                          {/* Vendor / UPI */}
+                          <td style={{padding:"7px 5px"}}>
+                            <input value={row.upiId}
+                              onChange={e=>updateRow(row._id,"upiId",e.target.value)}
+                              placeholder="Vendor / UPI ID"
+                              style={{...INP,padding:"5px 7px",fontSize:12,width:140}}/>
                           </td>
-                          <td style={{padding:"8px 6px"}}>
-                            <input value={row.purpose} onChange={e=>updateRow(row._id,"purpose",e.target.value)} placeholder="Purpose" style={{...INP,padding:"5px 8px",fontSize:12,width:160}}/>
+
+                          {/* Purpose */}
+                          <td style={{padding:"7px 5px"}}>
+                            <input value={row.purpose}
+                              onChange={e=>updateRow(row._id,"purpose",e.target.value)}
+                              placeholder="Purpose"
+                              style={{...INP,padding:"5px 7px",fontSize:12,width:155}}/>
                           </td>
-                          <td style={{padding:"8px 6px"}}>
-                            <select value={row.categoryCode} onChange={e=>updateRow(row._id,"categoryCode",e.target.value)} style={{...INP,padding:"5px 8px",fontSize:12,width:150,color:cat.color,borderColor:`${cat.color}40`}}>
+
+                          {/* Category */}
+                          <td style={{padding:"7px 5px"}}>
+                            <select value={row.categoryCode}
+                              onChange={e=>updateRow(row._id,"categoryCode",e.target.value)}
+                              style={{...INP,padding:"5px 7px",fontSize:11,width:130,
+                                color:cat.color,borderColor:`${cat.color}40`}}>
                               {CATEGORIES.map(c=><option key={c.code} value={c.code}>{c.icon} {c.label}</option>)}
                             </select>
                           </td>
-                          <td style={{padding:"8px 6px"}}>
-                            {row.categoryCode==="GNCEV"?(
-                              <select value={row.eventId} onChange={e=>updateRow(row._id,"eventId",e.target.value)} style={{...INP,padding:"5px 8px",fontSize:12,width:140}}>
-                                <option value="">No event</option>
-                                {openEvents.map(ev=><option key={ev.id} value={ev.id}>{ev.name}</option>)}
-                              </select>
-                            ):<span style={{color:"rgba(255,255,255,0.2)",fontSize:12,paddingLeft:8}}>—</span>}
-                          </td>
+
                           {/* UPI Screenshot */}
-                          <td style={{padding:"8px 6px",minWidth:90}}>
-                            <label style={{cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-                              {row.receiptDataUrl?(
-                                <div style={{display:"flex",alignItems:"center",gap:4}}>
-                                  <img src={row.receiptDataUrl} alt="proof" style={{width:32,height:32,objectFit:"cover",borderRadius:5,border:"1.5px solid rgba(16,185,129,0.5)"}}/>
-                                  <button onClick={e=>{e.preventDefault();updateRow(row._id,"receiptDataUrl",null);updateRow(row._id,"receiptFile",null);}} style={{background:"rgba(239,68,68,0.12)",border:"none",color:"#ef4444",borderRadius:4,padding:"1px 4px",cursor:"pointer",fontSize:10}}>✕</button>
+                          <td style={{padding:"7px 5px",width:60}}>
+                            <label style={{cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                              {row.receiptDataUrl ? (
+                                <div style={{position:"relative"}}>
+                                  <img src={row.receiptDataUrl} alt="upi"
+                                    style={{width:34,height:34,objectFit:"cover",borderRadius:5,
+                                      border:"1.5px solid rgba(16,185,129,0.5)"}}/>
+                                  <button type="button" onClick={e=>{e.preventDefault();updateRow(row._id,"receiptDataUrl",null);}}
+                                    style={{position:"absolute",top:-5,right:-5,background:"#ef4444",border:"none",
+                                      color:"#fff",borderRadius:"50%",width:14,height:14,cursor:"pointer",
+                                      fontSize:9,display:"flex",alignItems:"center",justifyContent:"center",
+                                      lineHeight:1,padding:0}}>✕</button>
                                 </div>
-                              ):(
-                                <div style={{background:"rgba(16,185,129,0.08)",border:"1.5px dashed rgba(16,185,129,0.3)",borderRadius:7,padding:"5px 8px",fontSize:11,color:"rgba(16,185,129,0.7)",textAlign:"center",whiteSpace:"nowrap"}}>📸 Attach</div>
+                              ) : (
+                                <div style={{background:"rgba(16,185,129,0.07)",
+                                  border:"1.5px dashed rgba(16,185,129,0.3)",borderRadius:7,
+                                  padding:"5px",fontSize:16,color:"rgba(16,185,129,0.6)"}}>📸</div>
                               )}
-                              <input type="file" accept="image/*,application/pdf" style={{display:"none"}} onChange={e=>e.target.files[0]&&attachRowFile(row._id,"receipt",e.target.files[0])}/>
+                              <input type="file" accept="image/*" style={{display:"none"}}
+                                onChange={e=>e.target.files[0]&&attachFile(row._id,"receiptDataUrl",e.target.files[0])}/>
                             </label>
                           </td>
+
                           {/* Bill / Invoice */}
-                          <td style={{padding:"8px 6px",minWidth:90}}>
-                            <label style={{cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-                              {row.invoiceDataUrl?(
-                                <div style={{display:"flex",alignItems:"center",gap:4}}>
-                                  <img src={row.invoiceDataUrl} alt="bill" style={{width:32,height:32,objectFit:"cover",borderRadius:5,border:"1.5px solid rgba(139,92,246,0.5)"}}/>
-                                  <button onClick={e=>{e.preventDefault();updateRow(row._id,"invoiceDataUrl",null);updateRow(row._id,"invoiceFile",null);}} style={{background:"rgba(239,68,68,0.12)",border:"none",color:"#ef4444",borderRadius:4,padding:"1px 4px",cursor:"pointer",fontSize:10}}>✕</button>
+                          <td style={{padding:"7px 5px",width:60}}>
+                            <label style={{cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                              {row.invoiceDataUrl ? (
+                                <div style={{position:"relative"}}>
+                                  <img src={row.invoiceDataUrl} alt="bill"
+                                    style={{width:34,height:34,objectFit:"cover",borderRadius:5,
+                                      border:"1.5px solid rgba(139,92,246,0.5)"}}/>
+                                  <button type="button" onClick={e=>{e.preventDefault();updateRow(row._id,"invoiceDataUrl",null);}}
+                                    style={{position:"absolute",top:-5,right:-5,background:"#ef4444",border:"none",
+                                      color:"#fff",borderRadius:"50%",width:14,height:14,cursor:"pointer",
+                                      fontSize:9,display:"flex",alignItems:"center",justifyContent:"center",
+                                      lineHeight:1,padding:0}}>✕</button>
                                 </div>
-                              ):(
-                                <div style={{background:"rgba(139,92,246,0.08)",border:"1.5px dashed rgba(139,92,246,0.3)",borderRadius:7,padding:"5px 8px",fontSize:11,color:"rgba(139,92,246,0.7)",textAlign:"center",whiteSpace:"nowrap"}}>🧾 Attach</div>
+                              ) : (
+                                <div style={{background:"rgba(139,92,246,0.07)",
+                                  border:"1.5px dashed rgba(139,92,246,0.3)",borderRadius:7,
+                                  padding:"5px",fontSize:16,color:"rgba(139,92,246,0.6)"}}>🧾</div>
                               )}
-                              <input type="file" accept="image/*,application/pdf" style={{display:"none"}} onChange={e=>e.target.files[0]&&attachRowFile(row._id,"invoice",e.target.files[0])}/>
+                              <input type="file" accept="image/*,application/pdf" style={{display:"none"}}
+                                onChange={e=>e.target.files[0]&&attachFile(row._id,"invoiceDataUrl",e.target.files[0])}/>
                             </label>
+                          </td>
+
+                          {/* Dup indicator */}
+                          <td style={{padding:"7px 5px",width:80}}>
+                            {dup ? (
+                              <div>
+                                <div style={{fontSize:10,fontWeight:700,
+                                  color:dup.level==="hard"?"#ef4444":dup.level==="soft"?"#f59e0b":"#fbbf24",
+                                  lineHeight:1.4,maxWidth:90,whiteSpace:"normal"}}>
+                                  {dup.level==="hard"?"🔴":dup.level==="soft"?"🟡":"🟠"} {dup.msg}
+                                </div>
+                                {(dup.level==="hard"||dup.level==="soft")&&(
+                                  <label style={{display:"flex",alignItems:"center",gap:3,marginTop:4,cursor:"pointer"}}>
+                                    <input type="checkbox" checked={row.overrideDup||false}
+                                      onChange={e=>updateRow(row._id,"overrideDup",e.target.checked)}
+                                      style={{accentColor:"#f59e0b",width:11,height:11}}/>
+                                    <span style={{fontSize:9,color:"rgba(255,255,255,0.4)",fontWeight:600}}>
+                                      Override
+                                    </span>
+                                  </label>
+                                )}
+                              </div>
+                            ) : (
+                              row.amount ? (
+                                <span style={{fontSize:11,color:"rgba(16,185,129,0.6)",fontWeight:700}}>✓ Clear</span>
+                              ) : (
+                                <span style={{fontSize:11,color:"rgba(255,255,255,0.15)"}}>—</span>
+                              )
+                            )}
+                          </td>
+
+                          {/* Actions: Clone + Remove */}
+                          <td style={{padding:"7px 6px",whiteSpace:"nowrap"}}>
+                            <div style={{display:"flex",gap:4}}>
+                              <button type="button" onClick={()=>cloneRow(row)} title="Clone this row"
+                                style={{background:"rgba(99,102,241,0.1)",border:"1px solid rgba(99,102,241,0.3)",
+                                  color:"#818cf8",borderRadius:6,padding:"4px 7px",cursor:"pointer",
+                                  fontSize:12,fontFamily:"'DM Sans',sans-serif",fontWeight:700}}
+                                title="Clone row (same vendor, new date/amount)">⧉</button>
+                              <button type="button" onClick={()=>removeRow(row._id)} title="Remove row"
+                                style={{background:"rgba(239,68,68,0.07)",border:"1px solid rgba(239,68,68,0.2)",
+                                  color:"#ef4444",borderRadius:6,padding:"4px 7px",cursor:"pointer",
+                                  fontSize:12,fontFamily:"'DM Sans',sans-serif",fontWeight:700}}>✕</button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -664,19 +888,59 @@ function BulkImportModal({members,events,onImport,onClose}) {
                   </tbody>
                 </table>
               </div>
+
+              {/* Dup legend */}
+              <div style={{display:"flex",gap:10,marginTop:12,flexWrap:"wrap"}}>
+                {[
+                  {col:"#ef4444",icon:"🔴",txt:"Exact duplicate — blocked until you override"},
+                  {col:"#f59e0b",icon:"🟡",txt:"Probable dup (same amount ±3 days, same category)"},
+                  {col:"#fbbf24",icon:"🟠",txt:"Suspicious (same vendor+amount within 7 days)"},
+                  {col:"#10b981",icon:"✓", txt:"Clear — no duplicates found"},
+                ].map(({col,icon,txt})=>(
+                  <div key={txt} style={{display:"flex",alignItems:"center",gap:5,fontSize:10,
+                    color:`${col}`,fontWeight:600}}>{icon} {txt}</div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── EMPTY STATE ── */}
+          {!hasRows && (
+            <div style={{textAlign:"center",padding:"40px 20px",color:"rgba(255,255,255,0.2)"}}>
+              <div style={{fontSize:44,marginBottom:12}}>📋</div>
+              <div style={{fontSize:14,fontWeight:600}}>Fill in the setup above and click Create Template</div>
+              <div style={{fontSize:12,marginTop:6,lineHeight:1.7}}>
+                Pick your vendor, default category, and how many rows you need.<br/>
+                Each row gets a Clone button — perfect for 3 bills from the same vendor.
+              </div>
             </div>
           )}
         </div>
 
-        {/* Footer */}
-        {step==="review"&&(
-          <div style={{padding:"16px 28px",borderTop:"1px solid rgba(255,255,255,0.07)",flexShrink:0,display:"flex",justifyContent:"space-between",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+        {/* ── Footer ── */}
+        {hasRows && (
+          <div style={{padding:"14px 26px",borderTop:"1px solid rgba(255,255,255,0.07)",flexShrink:0,
+            display:"flex",justifyContent:"space-between",alignItems:"center",gap:14,flexWrap:"wrap"}}>
             <div style={{fontSize:13,color:"rgba(255,255,255,0.4)"}}>
-              Importing <strong style={{color:"#818cf8"}}>{checkedCount}</strong> transactions for <strong style={{color:"#fbbf24"}}>{member||"(no member)"}</strong>
+              Importing <strong style={{color:"#818cf8"}}>{checkedCount}</strong> rows
+              {" · "}<strong style={{color:"#fbbf24"}}>{fmt(totalAmt)}</strong>
+              {" for "}<strong style={{color:"#10b981"}}>{member||"(no member)"}</strong>
             </div>
             <div style={{display:"flex",gap:10}}>
-              <button onClick={onClose} style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",color:"rgba(255,255,255,0.5)",borderRadius:10,padding:"10px 20px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:14}}>Cancel</button>
-              <button onClick={handleImport} disabled={!member||checkedCount===0} style={{background:(!member||checkedCount===0)?"rgba(99,102,241,0.3)":"linear-gradient(135deg,#4f46e5,#6366f1)",color:"#fff",border:"none",borderRadius:10,padding:"10px 24px",cursor:(!member||checkedCount===0)?"not-allowed":"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:800,fontSize:14,boxShadow:"0 4px 18px rgba(99,102,241,0.35)",display:"flex",alignItems:"center",gap:8}}>
+              <button onClick={onClose}
+                style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",
+                  color:"rgba(255,255,255,0.5)",borderRadius:10,padding:"10px 20px",cursor:"pointer",
+                  fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:14}}>Cancel</button>
+              <button onClick={handleImport}
+                disabled={!member||checkedCount===0}
+                style={{background:(!member||checkedCount===0)
+                  ?"rgba(99,102,241,0.3)"
+                  :"linear-gradient(135deg,#4f46e5,#6366f1)",
+                  color:"#fff",border:"none",borderRadius:10,padding:"10px 24px",
+                  cursor:(!member||checkedCount===0)?"not-allowed":"pointer",
+                  fontFamily:"'DM Sans',sans-serif",fontWeight:800,fontSize:14,
+                  boxShadow:"0 4px 18px rgba(99,102,241,0.35)",
+                  display:"flex",alignItems:"center",gap:8}}>
                 <Icon n="dl" s={15}/>Import {checkedCount} Expense{checkedCount!==1?"s":""}
               </button>
             </div>
@@ -687,92 +951,228 @@ function BulkImportModal({members,events,onImport,onClose}) {
   );
 }
 
+
+
 /* ═══════════════════════════════════════════════════════════
    MEMBER PIN MODAL
 ═══════════════════════════════════════════════════════════ */
-function MemberPinModal({members, memberPins, onSuccess, onClose}) {
+const MAX_PIN_ATTEMPTS = 5;
+
+function MemberPinModal({members, memberPins, onSuccess, onSavePin, onClose}) {
   const [selectedMember, setSelectedMember] = useState("");
-  const [digits, setDigits] = useState(["","","","",""]);
-  const [error, setError]   = useState("");
+  const [mode,     setMode]     = useState("verify");   // "verify" | "setpin"
+  const [digits,   setDigits]   = useState(["","","","",""]);
+  const [confirm,  setConfirm]  = useState(["","","","",""]);  // confirm digits for set-PIN
+  const [error,    setError]    = useState("");
   const [attempts, setAttempts] = useState(0);
-  const refs = [useRef(),useRef(),useRef(),useRef(),useRef()];
+  const [lockedOut,setLockedOut]= useState(false);
+  const [saving,   setSaving]   = useState(false);
+  const entryRefs   = [useRef(),useRef(),useRef(),useRef(),useRef()];
+  const confirmRefs = [useRef(),useRef(),useRef(),useRef(),useRef()];
   const INP={width:"100%",padding:"9px 13px",borderRadius:9,border:"1.5px solid rgba(255,255,255,0.12)",background:"rgba(255,255,255,0.06)",color:"#fff",fontSize:13,fontFamily:"'DM Sans',sans-serif",outline:"none",boxSizing:"border-box"};
 
-  const handleKey=(i,val)=>{
-    if(!/^\d?$/.test(val))return;
-    const next=[...digits]; next[i]=val; setDigits(next); setError("");
-    if(val&&i<4)refs[i+1].current?.focus();
-    if(i===4&&val&&next.join("").length===5)verify(next.join(""),next);
-  };
-  const handleKeyDown=(i,e)=>{
-    if(e.key==="Backspace"&&!digits[i]&&i>0)refs[i-1].current?.focus();
-    if(e.key==="Enter"){const pin=digits.join(""); if(pin.length===5)verify(pin,digits);}
+  const activeRefs = mode==="setpin" ? confirmRefs : entryRefs;
+
+  const makeKeyHandler = (arr, setArr, refs, i, onComplete) => (val) => {
+    if(!/^\d?$/.test(val)) return;
+    const next=[...arr]; next[i]=val; setArr(next); setError("");
+    if(val && i<4) refs[i+1].current?.focus();
+    if(i===4 && val && next.join("").length===5) onComplete(next.join(""));
   };
 
-  const verify=(pin)=>{
-    if(!selectedMember){setError("Please select your name first.");return;}
-    const expected=memberPins[selectedMember];
+  const makeKeyDownHandler = (arr, refs, i, onComplete) => (e) => {
+    if(e.key==="Backspace" && !arr[i] && i>0) refs[i-1].current?.focus();
+    if(e.key==="Enter"){ const pin=arr.join(""); if(pin.length===5) onComplete(pin); }
+  };
+
+  // ── VERIFY mode ─────────────────────────────────────────────────────
+  const verify = (pin) => {
+    if(lockedOut) return;
+    if(!selectedMember){ setError("Please select your name first."); return; }
+    const expected = memberPins[selectedMember];
     if(!expected){
-      // No PIN set for this member yet — allow through and flag
-      onSuccess(selectedMember);
+      // No PIN set yet — switch to set-PIN flow
+      setMode("setpin");
+      setDigits(["","","","",""]);
+      setConfirm(["","","","",""]);
+      setError("");
+      setTimeout(()=>entryRefs[0].current?.focus(), 80);
       return;
     }
-    if(String(pin)===String(expected)){
-      onSuccess(selectedMember);
+    if(String(pin)===String(expected)){ onSuccess(selectedMember); return; }
+    const newAttempts = attempts + 1;
+    setAttempts(newAttempts);
+    setDigits(["","","","",""]);
+    if(newAttempts >= MAX_PIN_ATTEMPTS){
+      setLockedOut(true);
+      setError(`Account locked after ${MAX_PIN_ATTEMPTS} failed attempts. Contact the Treasurer to reset your PIN.`);
     } else {
-      const newAttempts=attempts+1;
-      setAttempts(newAttempts);
-      setDigits(["","","","",""]);
-      setTimeout(()=>refs[0].current?.focus(),50);
-      setError(`Incorrect PIN (attempt ${newAttempts}). If you've forgotten it, contact the Treasurer to reset.`);
+      const remaining = MAX_PIN_ATTEMPTS - newAttempts;
+      setError(`Incorrect PIN — ${remaining} attempt${remaining===1?"":"s"} remaining before lockout.`);
+      setTimeout(()=>entryRefs[0].current?.focus(), 50);
     }
   };
+
+  // ── SET-PIN mode — step 1: enter new PIN ────────────────────────────
+  const handleNewPinComplete = (pin) => {
+    // Move focus to confirm row
+    setTimeout(()=>confirmRefs[0].current?.focus(), 80);
+  };
+
+  // ── SET-PIN mode — step 2: confirm PIN ──────────────────────────────
+  const handleConfirmComplete = async (pin) => {
+    const newPin = digits.join("");
+    if(newPin.length < 5){ setError("Enter all 5 digits of your new PIN first."); return; }
+    if(pin !== newPin){ setError("PINs don't match — please try again."); setConfirm(["","","","",""]); setTimeout(()=>confirmRefs[0].current?.focus(),50); return; }
+    setSaving(true);
+    await onSavePin(selectedMember, pin);
+    setSaving(false);
+    onSuccess(selectedMember);
+  };
+
+  const handleMemberChange = (name) => {
+    setSelectedMember(name); setMode("verify");
+    setDigits(["","","","",""]); setConfirm(["","","","",""]);
+    setError(""); setAttempts(0); setLockedOut(false);
+    setTimeout(()=>entryRefs[0].current?.focus(), 50);
+  };
+
+  const isVerifyReady   = !lockedOut && selectedMember && digits.join("").length===5;
+  const isSetPinReady   = digits.join("").length===5 && confirm.join("").length===5 && !saving;
+
+  const accentColor = lockedOut ? "#ef4444" : mode==="setpin" ? "#10b981" : "#fbbf24";
+  const icon        = lockedOut ? "🔒" : mode==="setpin" ? "🔐" : "🔑";
+  const title       = lockedOut ? "Access Locked" : mode==="setpin" ? "Set Your PIN" : "Member Verification";
+  const subtitle    = lockedOut
+    ? "Too many incorrect attempts. Please contact the Treasurer."
+    : mode==="setpin"
+      ? `Hi ${selectedMember}! Choose a private 5-digit PIN. You'll use this every time you submit expenses.`
+      : "Select your name and enter your PIN to submit expenses";
 
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:1200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-      <div style={{background:"linear-gradient(135deg,#0a1628,#0f2040)",border:"1px solid rgba(251,191,36,0.3)",borderRadius:24,padding:"40px 36px",width:"100%",maxWidth:400,boxShadow:"0 24px 80px rgba(0,0,0,0.8)",textAlign:"center"}}>
-        <div style={{width:62,height:62,borderRadius:"50%",background:"rgba(251,191,36,0.1)",border:"2px solid rgba(251,191,36,0.3)",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 18px",fontSize:28}}>🔑</div>
-        <h3 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:24,color:"#fbbf24",margin:"0 0 6px"}}>Member Verification</h3>
-        <p style={{color:"rgba(255,255,255,0.35)",fontSize:13,margin:"0 0 24px",lineHeight:1.6}}>Select your name and enter your PIN to submit expenses</p>
+      <div style={{background:"linear-gradient(135deg,#0a1628,#0f2040)",border:`1px solid ${accentColor}50`,borderRadius:24,padding:"40px 36px",width:"100%",maxWidth:420,boxShadow:"0 24px 80px rgba(0,0,0,0.8)",textAlign:"center"}}>
 
-        {/* Member selector */}
-        <div style={{marginBottom:20,textAlign:"left"}}>
-          <label style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.45)",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.06em"}}>Your Name</label>
-          <select value={selectedMember} onChange={e=>{setSelectedMember(e.target.value);setDigits(["","","","",""]);setError("");setTimeout(()=>refs[0].current?.focus(),50);}} style={INP}>
-            <option value="">Select your name</option>
-            {members.map(m=><option key={m}>{m}</option>)}
-          </select>
+        <div style={{width:62,height:62,borderRadius:"50%",background:`${accentColor}15`,border:`2px solid ${accentColor}45`,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 18px",fontSize:28}}>
+          {icon}
         </div>
+        <h3 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:24,color:accentColor,margin:"0 0 6px"}}>{title}</h3>
+        <p style={{color:"rgba(255,255,255,0.4)",fontSize:13,margin:"0 0 24px",lineHeight:1.6}}>{subtitle}</p>
 
-        {/* PIN digits */}
-        <div style={{marginBottom:8,textAlign:"left"}}>
-          <label style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.45)",display:"block",marginBottom:10,textTransform:"uppercase",letterSpacing:"0.06em"}}>Your PIN</label>
-          <div style={{display:"flex",gap:10,justifyContent:"center"}}>
-            {digits.map((d,i)=>(
-              <input key={i} ref={refs[i]}
-                type="password" inputMode="numeric" maxLength={1}
-                value={d}
-                onChange={e=>handleKey(i,e.target.value)}
-                onKeyDown={e=>handleKeyDown(i,e)}
-                style={{width:48,height:56,textAlign:"center",fontSize:22,fontWeight:800,background:"rgba(255,255,255,0.07)",border:`2px solid ${error?"rgba(239,68,68,0.6)":d?"rgba(251,191,36,0.6)":"rgba(255,255,255,0.15)"}`,borderRadius:12,color:"#fff",outline:"none",fontFamily:"'DM Sans',sans-serif",transition:"border-color 0.2s"}}
-              />
-            ))}
-          </div>
-        </div>
+        {!lockedOut && (
+          <>
+            {/* Member selector — only shown in verify mode */}
+            {mode==="verify" && (
+              <div style={{marginBottom:20,textAlign:"left"}}>
+                <label style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.45)",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.06em"}}>Your Name</label>
+                <select value={selectedMember} onChange={e=>handleMemberChange(e.target.value)} style={INP}>
+                  <option value="">Select your name</option>
+                  {members.map(m=><option key={m}>{m}</option>)}
+                </select>
+              </div>
+            )}
 
-        {error&&(
-          <div style={{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12,color:"#ef4444",textAlign:"left",lineHeight:1.5}}>
-            ⚠ {error}
+            {/* PIN entry row — "Enter PIN" in verify mode, "New PIN" in setpin mode */}
+            <div style={{marginBottom:mode==="setpin"?16:8,textAlign:"left"}}>
+              <label style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.45)",display:"block",marginBottom:10,textTransform:"uppercase",letterSpacing:"0.06em"}}>
+                {mode==="setpin" ? "Choose New PIN" : "Your PIN"}
+              </label>
+              <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+                {digits.map((d,i)=>(
+                  <input key={i} ref={entryRefs[i]}
+                    type="password" inputMode="numeric" maxLength={1} value={d}
+                    onChange={e=>makeKeyHandler(digits,setDigits,entryRefs,i,mode==="setpin"?handleNewPinComplete:verify)(e.target.value)}
+                    onKeyDown={e=>makeKeyDownHandler(digits,entryRefs,i,mode==="setpin"?handleNewPinComplete:verify)(e)}
+                    style={{width:48,height:56,textAlign:"center",fontSize:22,fontWeight:800,
+                      background:"rgba(255,255,255,0.07)",
+                      border:`2px solid ${error&&mode==="verify"?"rgba(239,68,68,0.6)":d?`${accentColor}90`:"rgba(255,255,255,0.15)"}`,
+                      borderRadius:12,color:"#fff",outline:"none",fontFamily:"'DM Sans',sans-serif",transition:"border-color 0.2s"}}
+                  />
+                ))}
+              </div>
+              {attempts>0 && mode==="verify" && (
+                <div style={{display:"flex",gap:5,justifyContent:"center",marginTop:10}}>
+                  {Array.from({length:MAX_PIN_ATTEMPTS}).map((_,i)=>(
+                    <div key={i} style={{width:8,height:8,borderRadius:"50%",background:i<attempts?"#ef4444":"rgba(255,255,255,0.15)",transition:"background 0.2s"}}/>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Confirm PIN row — only in setpin mode */}
+            {mode==="setpin" && (
+              <div style={{marginBottom:8,textAlign:"left"}}>
+                <label style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.45)",display:"block",marginBottom:10,textTransform:"uppercase",letterSpacing:"0.06em"}}>Confirm PIN</label>
+                <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+                  {confirm.map((d,i)=>(
+                    <input key={i} ref={confirmRefs[i]}
+                      type="password" inputMode="numeric" maxLength={1} value={d}
+                      onChange={e=>makeKeyHandler(confirm,setConfirm,confirmRefs,i,handleConfirmComplete)(e.target.value)}
+                      onKeyDown={e=>makeKeyDownHandler(confirm,confirmRefs,i,handleConfirmComplete)(e)}
+                      style={{width:48,height:56,textAlign:"center",fontSize:22,fontWeight:800,
+                        background:"rgba(255,255,255,0.07)",
+                        border:`2px solid ${error&&mode==="setpin"?"rgba(239,68,68,0.6)":d?"rgba(16,185,129,0.7)":"rgba(255,255,255,0.15)"}`,
+                        borderRadius:12,color:"#fff",outline:"none",fontFamily:"'DM Sans',sans-serif",transition:"border-color 0.2s"}}
+                    />
+                  ))}
+                </div>
+                <div style={{fontSize:11,color:"rgba(255,255,255,0.28)",textAlign:"center",marginTop:8}}>
+                  Re-enter the same PIN to confirm
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {error && (
+          <div style={{background:lockedOut?"rgba(239,68,68,0.12)":"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12,color:"#ef4444",textAlign:"left",lineHeight:1.5}}>
+            {lockedOut?"🔒":"⚠"} {error}
           </div>
         )}
 
-        <button
-          onClick={()=>{const pin=digits.join(""); if(!selectedMember){setError("Please select your name first.");return;} if(pin.length===5)verify(pin); else setError("Enter all 5 digits of your PIN.");}}
-          style={{width:"100%",background:selectedMember&&digits.join("").length===5?"linear-gradient(135deg,#f59e0b,#fbbf24)":"rgba(255,255,255,0.07)",color:selectedMember&&digits.join("").length===5?"#1a1a00":"rgba(255,255,255,0.3)",border:"none",borderRadius:12,padding:"13px",fontWeight:800,fontSize:15,cursor:selectedMember&&digits.join("").length===5?"pointer":"default",fontFamily:"'DM Sans',sans-serif",marginBottom:12,transition:"all 0.2s"}}
-        >
-          Verify & Continue
+        {/* Action button */}
+        {!lockedOut && (
+          <button
+            disabled={mode==="setpin" ? !isSetPinReady : !isVerifyReady}
+            onClick={()=>{
+              if(mode==="setpin"){
+                const p1=digits.join(""), p2=confirm.join("");
+                if(p1.length<5){setError("Enter all 5 digits of your new PIN.");return;}
+                if(p2.length<5){setError("Re-enter your PIN to confirm.");return;}
+                handleConfirmComplete(p2);
+              } else {
+                const pin=digits.join("");
+                if(!selectedMember){setError("Please select your name first.");return;}
+                if(pin.length===5) verify(pin); else setError("Enter all 5 digits of your PIN.");
+              }
+            }}
+            style={{width:"100%",
+              background:(mode==="setpin"?isSetPinReady:isVerifyReady)
+                ?mode==="setpin"?"linear-gradient(135deg,#059669,#10b981)":"linear-gradient(135deg,#f59e0b,#fbbf24)"
+                :"rgba(255,255,255,0.07)",
+              color:(mode==="setpin"?isSetPinReady:isVerifyReady)?"#fff":"rgba(255,255,255,0.3)",
+              border:"none",borderRadius:12,padding:"13px",fontWeight:800,fontSize:15,
+              cursor:(mode==="setpin"?isSetPinReady:isVerifyReady)?"pointer":"default",
+              fontFamily:"'DM Sans',sans-serif",marginBottom:12,transition:"all 0.2s",
+              display:"flex",alignItems:"center",justifyContent:"center",gap:8}}
+          >
+            {saving ? <><div style={{width:15,height:15,border:"2px solid rgba(255,255,255,0.3)",borderTopColor:"#fff",borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/> Saving PIN...</>
+              : mode==="setpin" ? "🔐 Set PIN & Continue"
+              : "Verify & Continue"}
+          </button>
+        )}
+
+        {/* Back link in setpin mode */}
+        {mode==="setpin" && !saving && (
+          <button onClick={()=>{setMode("verify");setDigits(["","","","",""]);setConfirm(["","","","",""]);setError("");}}
+            style={{background:"none",border:"none",color:"rgba(255,255,255,0.25)",cursor:"pointer",fontSize:12,fontFamily:"'DM Sans',sans-serif",marginBottom:6}}>
+            ← Back
+          </button>
+        )}
+
+        <button onClick={onClose} style={{background:"none",border:"none",color:"rgba(255,255,255,0.25)",cursor:"pointer",fontSize:13,fontFamily:"'DM Sans',sans-serif",display:"block",margin:"0 auto"}}>
+          {lockedOut?"Close":"Cancel"}
         </button>
-        <button onClick={onClose} style={{background:"none",border:"none",color:"rgba(255,255,255,0.3)",cursor:"pointer",fontSize:13,fontFamily:"'DM Sans',sans-serif"}}>Cancel</button>
       </div>
     </div>
   );
@@ -782,61 +1182,118 @@ function MemberPinModal({members, memberPins, onSuccess, onClose}) {
    PIN LOCK MODAL
 ═══════════════════════════════════════════════════════════ */
 function PinModal({onSuccess,onClose}) {
-  const [digits,setDigits] = useState(["","","","",""]);
-  const [error,setError]   = useState("");
-  const [checking,setChecking] = useState(false);
+  const [digits,   setDigits]   = useState(["","","","",""]);
+  const [error,    setError]    = useState("");
+  const [checking, setChecking] = useState(false);
+  const [attempts, setAttempts] = useState(0);
+  const [lockedOut,setLockedOut]= useState(false);
   const refs = [useRef(),useRef(),useRef(),useRef(),useRef()];
 
   const handleKey=(i,val)=>{
+    if(lockedOut||checking)return;
     if(!/^\d?$/.test(val))return;
     const next=[...digits]; next[i]=val; setDigits(next); setError("");
     if(val&&i<4)refs[i+1].current?.focus();
-    if(i===4&&val){
-      const pin=next.join("");
-      if(pin.length===5)submit(pin,next);
-    }
+    if(i===4&&val){const pin=next.join(""); if(pin.length===5)submit(pin);}
   };
   const handleKeyDown=(i,e)=>{
-    if(e.key==="Backspace"&&!digits[i]&&i>0){refs[i-1].current?.focus();}
-    if(e.key==="Enter"){const pin=digits.join(""); if(pin.length===5)submit(pin,digits);}
+    if(lockedOut||checking)return;
+    if(e.key==="Backspace"&&!digits[i]&&i>0)refs[i-1].current?.focus();
+    if(e.key==="Enter"){const pin=digits.join(""); if(pin.length===5)submit(pin);}
   };
+
   const submit=async(pin)=>{
+    if(lockedOut)return;
     setChecking(true);
-    await new Promise(r=>setTimeout(r,400)); // small pause feels intentional
-    onSuccess(pin);
+    await new Promise(r=>setTimeout(r,400));
+    // onSuccess passes the pin up to App which validates against treasurerPin
+    // If wrong, App calls back via showToast — but we also need local failure tracking.
+    // We wrap onSuccess and handle the lockout here via the returned result.
+    onSuccess(pin, (success)=>{
+      if(!success){
+        const newAttempts = attempts + 1;
+        setAttempts(newAttempts);
+        setDigits(["","","","",""]);
+        if(newAttempts >= MAX_PIN_ATTEMPTS){
+          setLockedOut(true);
+          setError(`Locked after ${MAX_PIN_ATTEMPTS} failed attempts. Close and try again later or contact your system admin.`);
+        } else {
+          const remaining = MAX_PIN_ATTEMPTS - newAttempts;
+          setError(`Wrong PIN — ${remaining} attempt${remaining===1?"":"s"} left.`);
+          setTimeout(()=>refs[0].current?.focus(),50);
+        }
+      }
+    });
     setChecking(false);
   };
 
+  const isReady = !lockedOut && !checking && digits.join("").length===5;
+
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:1200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-      <div style={{background:"linear-gradient(135deg,#0a1628,#0f2040)",border:"1px solid rgba(251,191,36,0.3)",borderRadius:24,padding:"40px 36px",width:"100%",maxWidth:380,boxShadow:"0 24px 80px rgba(0,0,0,0.7)",textAlign:"center"}}>
-        <div style={{width:60,height:60,borderRadius:"50%",background:"rgba(251,191,36,0.1)",border:"2px solid rgba(251,191,36,0.3)",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 20px",fontSize:26}}>🔐</div>
-        <h3 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:24,color:"#fbbf24",margin:"0 0 6px"}}>Treasurer Access</h3>
-        <p style={{color:"rgba(255,255,255,0.35)",fontSize:13,margin:"0 0 28px"}}>Enter your 5-digit secret PIN</p>
-
-        <div style={{display:"flex",gap:10,justifyContent:"center",marginBottom:20}}>
-          {digits.map((d,i)=>(
-            <input
-              key={i} ref={refs[i]}
-              type="password" inputMode="numeric" maxLength={1}
-              value={d}
-              onChange={e=>handleKey(i,e.target.value)}
-              onKeyDown={e=>handleKeyDown(i,e)}
-              style={{width:48,height:56,textAlign:"center",fontSize:22,fontWeight:800,background:"rgba(255,255,255,0.07)",border:`2px solid ${error?"rgba(239,68,68,0.6)":d?"rgba(251,191,36,0.6)":"rgba(255,255,255,0.15)"}`,borderRadius:12,color:"#fff",outline:"none",fontFamily:"'DM Sans',sans-serif",transition:"border-color 0.2s"}}
-            />
-          ))}
+      <div style={{background:"linear-gradient(135deg,#0a1628,#0f2040)",border:`1px solid ${lockedOut?"rgba(239,68,68,0.5)":"rgba(251,191,36,0.3)"}`,borderRadius:24,padding:"40px 36px",width:"100%",maxWidth:380,boxShadow:"0 24px 80px rgba(0,0,0,0.7)",textAlign:"center"}}>
+        <div style={{width:60,height:60,borderRadius:"50%",background:lockedOut?"rgba(239,68,68,0.12)":"rgba(251,191,36,0.1)",border:`2px solid ${lockedOut?"rgba(239,68,68,0.4)":"rgba(251,191,36,0.3)"}`,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 20px",fontSize:26}}>
+          {lockedOut?"🔒":"🔐"}
         </div>
+        <h3 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:24,color:lockedOut?"#ef4444":"#fbbf24",margin:"0 0 6px"}}>
+          {lockedOut?"Access Locked":"Treasurer Access"}
+        </h3>
+        <p style={{color:"rgba(255,255,255,0.35)",fontSize:13,margin:"0 0 28px"}}>
+          {lockedOut?"Too many failed attempts.":"Enter your 5-digit secret PIN"}
+        </p>
 
-        {error&&<div style={{color:"#ef4444",fontSize:13,marginBottom:14,fontWeight:600}}>{error}</div>}
+        {!lockedOut&&(
+          <>
+            <div style={{display:"flex",gap:10,justifyContent:"center",marginBottom:8}}>
+              {digits.map((d,i)=>(
+                <input key={i} ref={refs[i]}
+                  type="password" inputMode="numeric" maxLength={1}
+                  value={d}
+                  onChange={e=>handleKey(i,e.target.value)}
+                  onKeyDown={e=>handleKeyDown(i,e)}
+                  style={{width:48,height:56,textAlign:"center",fontSize:22,fontWeight:800,
+                    background:"rgba(255,255,255,0.07)",
+                    border:`2px solid ${error?"rgba(239,68,68,0.6)":d?"rgba(251,191,36,0.6)":"rgba(255,255,255,0.15)"}`,
+                    borderRadius:12,color:"#fff",outline:"none",
+                    fontFamily:"'DM Sans',sans-serif",transition:"border-color 0.2s"}}
+                />
+              ))}
+            </div>
+            {attempts>0&&(
+              <div style={{display:"flex",gap:5,justifyContent:"center",marginBottom:16}}>
+                {Array.from({length:MAX_PIN_ATTEMPTS}).map((_,i)=>(
+                  <div key={i} style={{width:8,height:8,borderRadius:"50%",
+                    background:i<attempts?"#ef4444":"rgba(255,255,255,0.15)",
+                    transition:"background 0.2s"}}/>
+                ))}
+              </div>
+            )}
+          </>
+        )}
 
-        <button
-          onClick={()=>{const pin=digits.join(""); if(pin.length===5)submit(pin); else setError("Enter all 5 digits");}}
-          disabled={checking||digits.join("").length<5}
-          style={{width:"100%",background:digits.join("").length===5?"linear-gradient(135deg,#f59e0b,#fbbf24)":"rgba(255,255,255,0.07)",color:digits.join("").length===5?"#1a1a00":"rgba(255,255,255,0.3)",border:"none",borderRadius:12,padding:"13px",fontWeight:800,fontSize:15,cursor:digits.join("").length===5?"pointer":"default",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8,transition:"all 0.2s",marginBottom:12}}
-        >
-          {checking?<><div style={{width:16,height:16,border:"2px solid rgba(0,0,0,0.2)",borderTopColor:"#1a1a00",borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/> Verifying...</>:"Unlock Dashboard"}
+        {error&&(
+          <div style={{color:"#ef4444",fontSize:13,marginBottom:14,fontWeight:600,lineHeight:1.5}}>
+            {lockedOut?"🔒 ":"⚠ "}{error}
+          </div>
+        )}
+
+        {!lockedOut&&(
+          <button
+            onClick={()=>{const pin=digits.join(""); if(pin.length===5)submit(pin); else setError("Enter all 5 digits");}}
+            disabled={!isReady}
+            style={{width:"100%",background:isReady?"linear-gradient(135deg,#f59e0b,#fbbf24)":"rgba(255,255,255,0.07)",
+              color:isReady?"#1a1a00":"rgba(255,255,255,0.3)",border:"none",borderRadius:12,
+              padding:"13px",fontWeight:800,fontSize:15,
+              cursor:isReady?"pointer":"default",fontFamily:"'DM Sans',sans-serif",
+              display:"flex",alignItems:"center",justifyContent:"center",gap:8,
+              transition:"all 0.2s",marginBottom:12}}
+          >
+            {checking?<><div style={{width:16,height:16,border:"2px solid rgba(0,0,0,0.2)",borderTopColor:"#1a1a00",borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/> Verifying...</>:"Unlock Dashboard"}
+          </button>
+        )}
+        <button onClick={onClose} style={{background:"none",border:"none",color:"rgba(255,255,255,0.3)",cursor:"pointer",fontSize:13,fontFamily:"'DM Sans',sans-serif"}}>
+          {lockedOut?"Close":"Cancel"}
         </button>
-        <button onClick={onClose} style={{background:"none",border:"none",color:"rgba(255,255,255,0.3)",cursor:"pointer",fontSize:13,fontFamily:"'DM Sans',sans-serif"}}>Cancel</button>
       </div>
     </div>
   );
@@ -845,17 +1302,28 @@ function PinModal({onSuccess,onClose}) {
 /* ═══════════════════════════════════════════════════════════
    MEMBER MANAGEMENT PANEL
 ═══════════════════════════════════════════════════════════ */
-function MemberPanel({members,onAdd,onRemove,onClose}) {
-  const [newName,setNewName] = useState("");
-  const [removing,setRemoving] = useState(null);
+function MemberPanel({members, memberPins, onAdd, onRemove, onResetPin, onClose}) {
+  const [newName,   setNewName]   = useState("");
+  const [removing,  setRemoving]  = useState(null);
+  const [resetting, setResetting] = useState(null);  // member name being reset
+  const [resetDone, setResetDone] = useState(null);  // member name just reset
   const INP={width:"100%",padding:"10px 14px",borderRadius:10,border:"1.5px solid rgba(255,255,255,0.12)",background:"rgba(255,255,255,0.06)",color:"#fff",fontSize:14,fontFamily:"'DM Sans',sans-serif",outline:"none",boxSizing:"border-box"};
+
+  const handleResetPin = async (name) => {
+    setResetting(name);
+    await onResetPin(name);
+    setResetting(null);
+    setResetDone(name);
+    setTimeout(()=>setResetDone(null), 3000);
+  };
+
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.80)",zIndex:1100,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-      <div style={{background:"#0a1628",border:"1px solid rgba(16,185,129,0.3)",borderRadius:22,padding:32,width:"100%",maxWidth:480,boxShadow:"0 24px 80px rgba(0,0,0,0.7)",maxHeight:"85vh",display:"flex",flexDirection:"column"}}>
+      <div style={{background:"#0a1628",border:"1px solid rgba(16,185,129,0.3)",borderRadius:22,padding:32,width:"100%",maxWidth:520,boxShadow:"0 24px 80px rgba(0,0,0,0.7)",maxHeight:"85vh",display:"flex",flexDirection:"column",position:"relative"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:22,flexShrink:0}}>
           <div>
             <h3 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,color:"#10b981",margin:0}}>👥 Member Management</h3>
-            <p style={{color:"rgba(255,255,255,0.35)",fontSize:12,margin:"4px 0 0"}}>{members.length} active members</p>
+            <p style={{color:"rgba(255,255,255,0.35)",fontSize:12,margin:"4px 0 0"}}>{members.length} active members · Reset PIN clears it so member sets a new one on next login</p>
           </div>
           <button onClick={onClose} style={{background:"none",border:"none",color:"rgba(255,255,255,0.4)",cursor:"pointer"}}><Icon n="x" s={18}/></button>
         </div>
@@ -864,16 +1332,12 @@ function MemberPanel({members,onAdd,onRemove,onClose}) {
         <div style={{background:"rgba(16,185,129,0.07)",border:"1px solid rgba(16,185,129,0.2)",borderRadius:12,padding:16,marginBottom:20,flexShrink:0}}>
           <div style={{fontSize:11,fontWeight:700,color:"rgba(16,185,129,0.8)",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>Add New Member</div>
           <div style={{display:"flex",gap:8}}>
-            <input
-              value={newName} onChange={e=>setNewName(e.target.value)}
+            <input value={newName} onChange={e=>setNewName(e.target.value)}
               onKeyDown={e=>{if(e.key==="Enter"&&newName.trim()){onAdd(newName.trim());setNewName("");}}}
-              placeholder="Full name (e.g. Rajesh Kumar)" style={{...INP,flex:1,padding:"9px 13px",fontSize:13}}
-            />
-            <button
-              onClick={()=>{if(newName.trim()){onAdd(newName.trim());setNewName("");}}}
+              placeholder="Full name (e.g. Rajesh Kumar)" style={{...INP,flex:1,padding:"9px 13px",fontSize:13}}/>
+            <button onClick={()=>{if(newName.trim()){onAdd(newName.trim());setNewName("");}}}
               disabled={!newName.trim()}
-              style={{background:newName.trim()?"linear-gradient(135deg,#059669,#10b981)":"rgba(255,255,255,0.06)",color:newName.trim()?"#fff":"rgba(255,255,255,0.3)",border:"none",borderRadius:10,padding:"9px 18px",cursor:newName.trim()?"pointer":"default",fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}
-            >
+              style={{background:newName.trim()?"linear-gradient(135deg,#059669,#10b981)":"rgba(255,255,255,0.06)",color:newName.trim()?"#fff":"rgba(255,255,255,0.3)",border:"none",borderRadius:10,padding:"9px 18px",cursor:newName.trim()?"pointer":"default",fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}>
               <Icon n="plus" s={14}/>Add
             </button>
           </div>
@@ -883,23 +1347,51 @@ function MemberPanel({members,onAdd,onRemove,onClose}) {
         <div style={{overflowY:"auto",flex:1}}>
           {members.length===0?(
             <div style={{textAlign:"center",padding:"40px 20px",color:"rgba(255,255,255,0.2)"}}>No members yet. Add one above.</div>
-          ):members.map((m,i)=>(
-            <div key={i} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 4px",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
-              <div style={{width:36,height:36,borderRadius:"50%",background:"linear-gradient(135deg,#1d4ed8,#3b82f6)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800,flexShrink:0}}>
-                {m.split(" ").map(w=>w[0]).slice(0,2).join("")}
+          ):members.map((m,i)=>{
+            const hasPin   = !!(memberPins&&memberPins[m]);
+            const isReset  = resetting===m;
+            const justDone = resetDone===m;
+            return (
+              <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 4px",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
+                {/* Avatar */}
+                <div style={{width:36,height:36,borderRadius:"50%",background:"linear-gradient(135deg,#1d4ed8,#3b82f6)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800,flexShrink:0}}>
+                  {m.split(" ").map(w=>w[0]).slice(0,2).join("")}
+                </div>
+                {/* Name */}
+                <span style={{flex:1,fontSize:14,color:"rgba(255,255,255,0.85)",fontWeight:500}}>{m}</span>
+                {/* PIN status badge */}
+                <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:10,
+                  background:hasPin?"rgba(16,185,129,0.12)":"rgba(245,158,11,0.1)",
+                  color:hasPin?"#10b981":"#f59e0b",
+                  border:`1px solid ${hasPin?"rgba(16,185,129,0.3)":"rgba(245,158,11,0.3)"}`,
+                  whiteSpace:"nowrap"}}>
+                  {hasPin?"🔐 PIN set":"⚠ No PIN"}
+                </span>
+                {/* Reset PIN button */}
+                {hasPin&&(
+                  <button onClick={()=>handleResetPin(m)} disabled={isReset}
+                    style={{background:justDone?"rgba(16,185,129,0.15)":"rgba(245,158,11,0.08)",
+                      border:`1px solid ${justDone?"rgba(16,185,129,0.35)":"rgba(245,158,11,0.25)"}`,
+                      color:justDone?"#10b981":"#f59e0b",borderRadius:8,
+                      padding:"5px 10px",cursor:isReset?"default":"pointer",
+                      fontSize:11,fontFamily:"'DM Sans',sans-serif",fontWeight:700,
+                      whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,
+                      opacity:isReset?0.6:1}}>
+                    {isReset?<><div style={{width:10,height:10,border:"1.5px solid rgba(245,158,11,0.3)",borderTopColor:"#f59e0b",borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/>...</>
+                      :justDone?"✓ Reset":"🔑 Reset PIN"}
+                  </button>
+                )}
+                {/* Remove button */}
+                <button onClick={()=>setRemoving(m)}
+                  style={{background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.2)",color:"#ef4444",borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:12,fontFamily:"'DM Sans',sans-serif",fontWeight:600,display:"flex",alignItems:"center",gap:4}}>
+                  <Icon n="x" s={12}/>Remove
+                </button>
               </div>
-              <span style={{flex:1,fontSize:14,color:"rgba(255,255,255,0.85)",fontWeight:500}}>{m}</span>
-              <button
-                onClick={()=>setRemoving(m)}
-                style={{background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.2)",color:"#ef4444",borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:12,fontFamily:"'DM Sans',sans-serif",fontWeight:600,display:"flex",alignItems:"center",gap:4}}
-              >
-                <Icon n="x" s={12}/>Remove
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
-        {/* Confirm remove */}
+        {/* Confirm remove overlay */}
         {removing&&(
           <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.7)",borderRadius:22,display:"flex",alignItems:"center",justifyContent:"center",padding:30}}>
             <div style={{background:"#0f2040",border:"1px solid rgba(239,68,68,0.4)",borderRadius:16,padding:28,textAlign:"center",maxWidth:300}}>
@@ -991,6 +1483,253 @@ function VendorPanel({vendors,onAdd,onRemove,onClose}) {
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   TRANSACTIONS VIEW — read-only for all verified members
+═══════════════════════════════════════════════════════════ */
+function TxnsView({entries, events, verifiedMember, isTreasurer, isTreasurerMember, onViewReceipt}) {
+  const [searchQ,  setSearchQ]  = useState("");
+  const [fCat,     setFCat]     = useState("all");
+  const [fMonth,   setFMonth]   = useState("all");
+  const [fYear,    setFYear]    = useState(String(new Date().getFullYear()));
+  const [fStatus,  setFStatus]  = useState("all");
+  const [highlight,setHighlight]= useState(true); // highlight own entries
+
+  const allYears = [...new Set(entries.map(e=>new Date(e.date).getFullYear()))].sort((a,b)=>b-a);
+
+  const filtered = entries.filter(e=>{
+    const dt = new Date(e.date);
+    if(fYear!=="all"   && dt.getFullYear()!==Number(fYear))   return false;
+    if(fMonth!=="all"  && dt.getMonth()!==Number(fMonth))     return false;
+    if(fCat!=="all"    && e.categoryCode!==fCat)              return false;
+    if(fStatus!=="all" && e.status!==fStatus)                 return false;
+    if(searchQ.trim()){
+      const q = searchQ.toLowerCase();
+      if(!`${e.txnId} ${e.purpose} ${e.member} ${e.amount} ${e.category}`.toLowerCase().includes(q)) return false;
+    }
+    return true;
+  }).sort((a,b)=>new Date(b.date)-new Date(a.date));
+
+  const totalAmt   = filtered.reduce((s,e)=>s+e.amount,0);
+  const myEntries  = filtered.filter(e=>e.member===verifiedMember);
+  const myTotal    = myEntries.reduce((s,e)=>s+e.amount,0);
+  const myPending  = myEntries.filter(e=>e.status==="Pending").reduce((s,e)=>s+e.amount,0);
+
+  const INP={padding:"8px 12px",borderRadius:9,border:"1.5px solid rgba(255,255,255,0.1)",background:"rgba(255,255,255,0.05)",color:"#fff",fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none"};
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{marginBottom:20}}>
+        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:12}}>
+          <div>
+            <h2 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:28,color:"#fbbf24",margin:"0 0 4px"}}>
+              Community Transactions
+            </h2>
+            <p style={{color:"rgba(255,255,255,0.35)",fontSize:13,margin:0}}>
+              Read-only view for all members · All amounts in ₹
+            </p>
+          </div>
+          {/* Highlight toggle */}
+          <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",
+            background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",
+            borderRadius:10,padding:"8px 14px"}}>
+            <input type="checkbox" checked={highlight} onChange={e=>setHighlight(e.target.checked)}
+              style={{accentColor:"#fbbf24",width:14,height:14,cursor:"pointer"}}/>
+            <span style={{fontSize:12,color:"rgba(255,255,255,0.55)",fontWeight:600}}>
+              Highlight my entries
+            </span>
+          </label>
+        </div>
+      </div>
+
+      {/* My summary strip */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:12,marginBottom:20}}>
+        {[
+          {label:"Community Total",   val:fmt(totalAmt),  sub:`${filtered.length} transactions`, col:"#fbbf24"},
+          {label:"My Submissions",    val:fmt(myTotal),   sub:`${myEntries.length} entries`,      col:"#818cf8"},
+          {label:"My Pending",        val:fmt(myPending), sub:"awaiting reimbursement",           col:"#f59e0b"},
+        ].map(({label,val,sub,col})=>(
+          <div key={label} style={{background:"rgba(255,255,255,0.02)",border:`1px solid ${col}25`,
+            borderRadius:14,padding:"14px 18px",borderTop:`3px solid ${col}60`}}>
+            <div style={{fontSize:10,fontWeight:700,color:`${col}90`,textTransform:"uppercase",
+              letterSpacing:"0.08em",marginBottom:6}}>{label}</div>
+            <div style={{fontSize:22,fontWeight:800,color:"#fff",fontFamily:"'DM Sans',sans-serif",lineHeight:1}}>{val}</div>
+            <div style={{fontSize:11,color:"rgba(255,255,255,0.3)",marginTop:4}}>{sub}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Search + Filters */}
+      <div style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",
+        borderRadius:13,padding:"12px 16px",marginBottom:14,
+        display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+        {/* Search */}
+        <div style={{position:"relative",flex:"1 1 180px",minWidth:160}}>
+          <input value={searchQ} onChange={e=>setSearchQ(e.target.value)}
+            placeholder="🔍 Search purpose, member, ID..."
+            style={{...INP,width:"100%",boxSizing:"border-box",paddingRight:searchQ?28:12}}/>
+          {searchQ&&(
+            <button onClick={()=>setSearchQ("")}
+              style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",
+                background:"none",border:"none",color:"rgba(255,255,255,0.35)",cursor:"pointer",padding:0,lineHeight:1}}>
+              ✕
+            </button>
+          )}
+        </div>
+        {/* Filters */}
+        {[
+          {val:fYear,   set:setFYear,   opts:[["all","All Years"],   ...allYears.map(y=>[String(y),String(y)])]},
+          {val:fMonth,  set:setFMonth,  opts:[["all","All Months"],  ...MONTHS.map((m,i)=>[String(i),m])]},
+          {val:fCat,    set:setFCat,    opts:[["all","All Categories"],...CATEGORIES.map(c=>[c.code,`${c.icon} ${c.label}`])]},
+          {val:fStatus, set:setFStatus, opts:[["all","All Status"],  ["Pending","⏳ Pending"],["Reimbursed","✅ Reimbursed"]]},
+        ].map(({val,set,opts},i)=>(
+          <select key={i} value={val} onChange={e=>set(e.target.value)}
+            style={{...INP,flex:"0 0 auto"}}>
+            {opts.map(([v,l])=><option key={v} value={v}>{l}</option>)}
+          </select>
+        ))}
+        <button onClick={()=>{setSearchQ("");setFYear(String(new Date().getFullYear()));setFMonth("all");setFCat("all");setFStatus("all");}}
+          style={{...INP,cursor:"pointer",display:"flex",alignItems:"center",gap:4,
+            background:"rgba(255,255,255,0.04)"}}>
+          <Icon n="ref" s={11}/> Reset
+        </button>
+        <span style={{fontSize:11,color:"rgba(255,255,255,0.25)",marginLeft:4}}>
+          {filtered.length} entries
+        </span>
+      </div>
+
+      {/* Table */}
+      <div style={{background:"rgba(255,255,255,0.02)",borderRadius:14,
+        border:"1px solid rgba(255,255,255,0.06)",overflow:"hidden"}}>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:680}}>
+            <thead>
+              <tr style={{borderBottom:"1px solid rgba(251,191,36,0.12)"}}>
+                {["Txn ID","Date","Member","Category","Purpose","Amount","Status","📎"].map(h=>(
+                  <th key={h} style={{padding:"11px 14px",textAlign:"left",fontSize:10,
+                    fontWeight:700,color:"rgba(251,191,36,0.5)",textTransform:"uppercase",
+                    letterSpacing:"0.08em",whiteSpace:"nowrap"}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length===0 ? (
+                <tr><td colSpan={8} style={{padding:"44px",textAlign:"center",
+                  color:"rgba(255,255,255,0.2)",fontSize:14}}>
+                  No transactions match the current filters
+                </td></tr>
+              ) : filtered.map(e=>{
+                const cat    = catByCode(e.categoryCode||"GNMI");
+                const ev     = events.find(ev=>ev.id===e.eventId);
+                const isMe   = e.member===verifiedMember;
+                const rowBg  = highlight && isMe
+                  ? "rgba(251,191,36,0.05)" : "transparent";
+                const rowBorderLeft = highlight && isMe
+                  ? "3px solid rgba(251,191,36,0.5)" : "3px solid transparent";
+
+                return (
+                  <tr key={e.id} style={{borderBottom:"1px solid rgba(255,255,255,0.04)",
+                    background:rowBg,borderLeft:rowBorderLeft,transition:"background 0.15s"}}>
+
+                    {/* Txn ID */}
+                    <td style={{padding:"11px 14px"}}>
+                      <div style={{fontFamily:"monospace",fontSize:11,color:isMe?"#fbbf24":"rgba(255,255,255,0.45)",fontWeight:700}}>
+                        {e.txnId}
+                      </div>
+                      {ev&&<div style={{fontSize:10,color:"#d946ef",marginTop:2}}>🎉 {ev.name}</div>}
+                      {isMe&&highlight&&(
+                        <div style={{fontSize:9,color:"rgba(251,191,36,0.5)",fontWeight:700,
+                          textTransform:"uppercase",letterSpacing:"0.06em",marginTop:2}}>★ mine</div>
+                      )}
+                    </td>
+
+                    {/* Date */}
+                    <td style={{padding:"11px 14px",fontSize:12,
+                      color:"rgba(255,255,255,0.45)",whiteSpace:"nowrap"}}>
+                      {new Date(e.date).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"2-digit"})}
+                    </td>
+
+                    {/* Member */}
+                    <td style={{padding:"11px 14px"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:7}}>
+                        <div style={{width:26,height:26,borderRadius:"50%",flexShrink:0,
+                          background:isMe?"linear-gradient(135deg,#92400e,#f59e0b)":"linear-gradient(135deg,#1d4ed8,#3b82f6)",
+                          color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",
+                          fontSize:9,fontWeight:800}}>
+                          {e.member.split(" ").map(w=>w[0]).slice(0,2).join("")}
+                        </div>
+                        <span style={{fontSize:12,fontWeight:isMe?700:500,
+                          color:isTreasurerMember(e.member)?"#fbbf24":isMe?"#fbbf24":"rgba(255,255,255,0.7)"}}>
+                          {e.member.split(" ")[0]}
+                          {isTreasurerMember(e.member)&&<span style={{fontSize:9,opacity:0.7}}> ★</span>}
+                        </span>
+                      </div>
+                    </td>
+
+                    {/* Category */}
+                    <td style={{padding:"11px 14px"}}>
+                      <span style={{background:`${cat.color}18`,color:cat.color,
+                        border:`1px solid ${cat.color}35`,borderRadius:7,
+                        padding:"3px 8px",fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>
+                        {cat.icon} {e.categoryCode}
+                      </span>
+                    </td>
+
+                    {/* Purpose */}
+                    <td style={{padding:"11px 14px",fontSize:12,
+                      color:"rgba(255,255,255,0.6)",maxWidth:200}}>
+                      <div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                        {e.purpose}
+                      </div>
+                      {e.notes&&(
+                        <div style={{fontSize:10,color:"rgba(255,255,255,0.28)",marginTop:1,
+                          overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                          {e.notes}
+                        </div>
+                      )}
+                    </td>
+
+                    {/* Amount */}
+                    <td style={{padding:"11px 14px",fontWeight:800,fontSize:14,
+                      color:isMe?"#fbbf24":"rgba(255,255,255,0.85)",whiteSpace:"nowrap"}}>
+                      {fmt(e.amount)}
+                    </td>
+
+                    {/* Status — read-only badge (no onClick) */}
+                    <td style={{padding:"8px 10px"}}>
+                      <Badge status={e.status}/>
+                    </td>
+
+                    {/* Receipt link */}
+                    <td style={{padding:"8px 10px"}}>
+                      {(e.receiptUrl||e.receiptDataUrl) ? (
+                        <button onClick={()=>onViewReceipt(e)}
+                          style={{background:e.receiptUrl?"rgba(16,185,129,0.1)":"rgba(245,158,11,0.1)",
+                            border:`1px solid ${e.receiptUrl?"rgba(16,185,129,0.3)":"rgba(245,158,11,0.3)"}`,
+                            color:e.receiptUrl?"#10b981":"#f59e0b",
+                            borderRadius:7,padding:"4px 8px",cursor:"pointer",fontSize:12,lineHeight:1}}>
+                          📎
+                        </button>
+                      ):(
+                        <span style={{fontSize:11,color:"rgba(255,255,255,0.15)"}}>—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Footer note */}
+      <div style={{marginTop:12,fontSize:11,color:"rgba(255,255,255,0.2)",textAlign:"center"}}>
+        Read-only view · Contact the Treasurer for corrections
       </div>
     </div>
   );
@@ -1354,6 +2093,8 @@ export default function App() {
   const [form,setForm] = useState({member:"",amount:"",categoryCode:"",purpose:"",date:todayStr(),upiId:"",notes:"",eventId:"",subCategory:"",txnRef:"",chequeNo:"",payeeDetails:""});
   const [submitting,setSubmitting] = useState(false);
   const [toast,setToast]           = useState(null);
+  const [dupWarning,setDupWarning] = useState(null);   // {level, txnId, msg} for single-entry form
+  const [dupOverride,setDupOverride] = useState(false); // user ack'd the warning
 
   const [fYear,setFYear]     = useState("all");
   const [fMonth,setFMonth]   = useState("all");
@@ -1479,101 +2220,113 @@ export default function App() {
       addLog("Submit blocked — invalid amount: "+form.amount,"warn");
       return;
     }
+    // Duplicate detection on single submit
+    const dup = checkSingleDup(entries, form);
+    if (dup && !dupOverride) {
+      setDupWarning(dup);
+      if (dup.level === "hard") {
+        showToast(`🔴 Exact duplicate detected — ${dup.txnId}. Scroll down to override if intentional.`, "error");
+        setSubmitting(false); return;
+      }
+      // soft warning: show it but don't block yet — user must check the override box
+      showToast(`🟡 Possible duplicate: ${dup.msg}. Check the warning below.`, "warning");
+      setSubmitting(false); return;
+    }
     if(form.date>todayStr()){showToast("⚠ Date is in the future — please check","warning");addLog("Warning: future date "+form.date,"warn");}
     // 30-day backdating restriction
     const cutoff=new Date(); cutoff.setDate(cutoff.getDate()-30);
     if(new Date(form.date)<cutoff){showToast("❌ Date is more than 30 days in the past. Contact the Treasurer for older entries.","error");addLog("Submit blocked — date too old: "+form.date,"warn");return;}
     setSubmitting(true);
     addLog(`→ Submitting expense: ${form.categoryCode} ₹${parsedAmt} by ${form.member}`,"info");
-    const evObj=events.find(e=>e.id===form.eventId);
-    const cKey=isEventCat&&evObj?`GNCEV-${evObj.tag}`:form.categoryCode;
-    const n=(counters[cKey]||0)+1;
-    const payTag = payType==="cash"?"CASH":payType==="cheque"?"CHQ":payType==="netbanking"?"NB":"";
-    const txnId = payTag
-      ?(isEventCat&&evObj?`GNCEV-${evObj.tag}-${payTag}-${pad5(n)}`:`${form.categoryCode}-${payTag}-${pad5(n)}`)
-      :(isEventCat&&evObj?`GNCEV-${evObj.tag}-${pad5(n)}`:`${form.categoryCode}${pad5(n)}`);
-    const payLabel = payType==="cash"
-      ? `Cash – ${form.upiId||"direct payment"}`
-      : payType==="cheque"
-        ? `Cheque #${form.chequeNo||"—"} | ${form.payeeDetails||"—"}`
-        : payType==="netbanking"
-          ? `Net Banking – ${form.txnRef||""}`
-          : form.upiId;
-    const entry={
-      id:genId(),txnId,date:form.date,member:form.member,
-      categoryCode:form.categoryCode,category:selCat.label,
-      amount:parsedAmt,purpose:form.purpose,
-      upiId:payLabel,
-      status:"Pending",notes:form.notes,
-      eventId:form.eventId||null,subCategory:form.subCategory||null,
-      payType,txnRef:form.txnRef||null,
-      receiptDataUrl: receiptDataUrl||null, // local preview until Drive upload completes
-      receiptUrl: null, // will be set after Drive upload
-      invoiceDataUrl: invoiceDataUrl||null, // local preview until Drive upload completes
-      invoiceUrl: null, // will be set after Drive upload
-    };
-    setEntries(p=>[entry,...p]);
-    setCounters(p=>({...p,[cKey]:n}));
-    const savedReceipt = receiptDataUrl; // capture before clearing
-    const savedReceiptMime = receiptDataUrl ? receiptDataUrl.split(";")[0].replace("data:","") : null;
-    const savedInvoice = invoiceDataUrl; // capture before clearing
-    const savedInvoiceMime = invoiceDataUrl ? invoiceDataUrl.split(";")[0].replace("data:","") : null;
-    setForm({member:"",amount:"",categoryCode:"",purpose:"",date:todayStr(),upiId:"",notes:"",eventId:"",subCategory:"",txnRef:"",chequeNo:"",payeeDetails:""});
-    setFieldErrors({});
-    setReceiptDataUrl(null);resetReceiptInput();setInvoiceDataUrl(null);resetInvoiceInput();setSubmitting(false);
-    setVerifiedMember(null); // require PIN re-verification for next submission
-    showToast(`✅ Expense submitted! ID: ${txnId}`);
-    addLog(`✓ Entry created: ${txnId} ₹${parsedAmt}`,"ok");
-    if(scriptUrl){
-      setSyncStatus("syncing");
-      const r=await callScript("addEntry",{entry});
-      setSyncStatus(r.success?"ok":"fail");
-      if(!r.success)showToast(`Sheet sync failed: ${r.error}`,"warning");
-      await callScript("updateCounter",{key:cKey,value:n});
-      // Upload receipt to Google Drive if one was attached
-      if(savedReceipt && r.success){
-        addLog(`→ Uploading receipt to Google Drive...`,"info");
-        const base64 = savedReceipt.split(",")[1];
-        const dr = await callScript("saveReceipt",{
-          txnId,
-          base64,
-          mimeType: savedReceiptMime||"image/jpeg",
-          date: entry.date,
-          member: entry.member,
-          fileType: "receipt"
-        });
-        if(dr.success){
-          addLog(`✓ Receipt saved to Drive: ${dr.folder}/${dr.fileName}`,"ok");
-          setEntries(p=>p.map(e=>e.id===entry.id?{...e,receiptUrl:dr.viewUrl,receiptFileId:dr.fileId}:e));
-          showToast(`📎 Receipt saved to Drive — ${dr.folder}`,"success");
-        }else{
-          addLog(`⚠ Receipt Drive upload failed: ${dr.error} — kept locally`,"warn");
-          showToast(`Receipt kept locally (Drive upload failed: ${dr.error})`,"warning");
+    try {
+      const evObj=events.find(e=>e.id===form.eventId);
+      const cKey=isEventCat&&evObj?`GNCEV-${evObj.tag}`:form.categoryCode;
+      const n=(counters[cKey]||0)+1;
+      const payTag = payType==="cash"?"CASH":payType==="cheque"?"CHQ":payType==="netbanking"?"NB":"";
+      const txnId = payTag
+        ?(isEventCat&&evObj?`GNCEV-${evObj.tag}-${payTag}-${pad5(n)}`:`${form.categoryCode}-${payTag}-${pad5(n)}`)
+        :(isEventCat&&evObj?`GNCEV-${evObj.tag}-${pad5(n)}`:`${form.categoryCode}${pad5(n)}`);
+      const payLabel = payType==="cash"
+        ? `Cash – ${form.upiId||"direct payment"}`
+        : payType==="cheque"
+          ? `Cheque #${form.chequeNo||"—"} | ${form.payeeDetails||"—"}`
+          : payType==="netbanking"
+            ? `Net Banking – ${form.txnRef||""}`
+            : form.upiId;
+      const entry={
+        id:genId(),txnId,date:form.date,member:form.member,
+        categoryCode:form.categoryCode,category:selCat.label,
+        amount:parsedAmt,purpose:form.purpose,
+        upiId:payLabel,
+        status:"Pending",notes:form.notes,
+        eventId:form.eventId||null,subCategory:form.subCategory||null,
+        payType,txnRef:form.txnRef||null,
+        receiptDataUrl: receiptDataUrl||null,
+        receiptUrl: null,
+        invoiceDataUrl: invoiceDataUrl||null,
+        invoiceUrl: null,
+      };
+      setEntries(p=>[entry,...p]);
+      setCounters(p=>({...p,[cKey]:n}));
+      const savedReceipt = receiptDataUrl;
+      const savedReceiptMime = receiptDataUrl ? receiptDataUrl.split(";")[0].replace("data:","") : null;
+      const savedInvoice = invoiceDataUrl;
+      const savedInvoiceMime = invoiceDataUrl ? invoiceDataUrl.split(";")[0].replace("data:","") : null;
+      // Keep verifiedMember alive — reset form but preserve member
+      setForm(f=>({member:verifiedMember||f.member,amount:"",categoryCode:"",purpose:"",date:todayStr(),upiId:"",notes:"",eventId:"",subCategory:"",txnRef:"",chequeNo:"",payeeDetails:""}));
+      setFieldErrors({});
+      setDupWarning(null); setDupOverride(false);
+      setReceiptDataUrl(null);resetReceiptInput();setInvoiceDataUrl(null);resetInvoiceInput();
+      showToast(`✅ Expense submitted! ID: ${txnId}`);
+      addLog(`✓ Entry created: ${txnId} ₹${parsedAmt}`,"ok");
+      if(scriptUrl){
+        setSyncStatus("syncing");
+        const r=await callScript("addEntry",{entry});
+        setSyncStatus(r.success?"ok":"fail");
+        if(!r.success)showToast(`Sheet sync failed: ${r.error}`,"warning");
+        await callScript("updateCounter",{key:cKey,value:n});
+        if(savedReceipt && r.success){
+          addLog(`→ Uploading receipt to Google Drive...`,"info");
+          const base64 = savedReceipt.split(",")[1];
+          const dr = await callScript("saveReceipt",{
+            txnId, base64, mimeType: savedReceiptMime||"image/jpeg",
+            date: entry.date, member: entry.member, fileType: "receipt"
+          });
+          if(dr.success){
+            addLog(`✓ Receipt saved to Drive: ${dr.folder}/${dr.fileName}`,"ok");
+            setEntries(p=>p.map(e=>e.id===entry.id?{...e,receiptUrl:dr.viewUrl,receiptFileId:dr.fileId}:e));
+            showToast(`📎 Receipt saved to Drive — ${dr.folder}`,"success");
+          }else{
+            addLog(`⚠ Receipt Drive upload failed: ${dr.error} — kept locally`,"warn");
+            showToast(`Receipt kept locally (Drive upload failed: ${dr.error})`,"warning");
+          }
         }
-      }
-      // Upload invoice to Google Drive if one was attached
-      if(savedInvoice && r.success){
-        addLog(`→ Uploading invoice to Google Drive...`,"info");
-        const base64inv = savedInvoice.split(",")[1];
-        const dinv = await callScript("saveReceipt",{
-          txnId,
-          base64: base64inv,
-          mimeType: savedInvoiceMime||"image/jpeg",
-          date: entry.date,
-          member: entry.member,
-          fileType: "invoice"
-        });
-        if(dinv.success){
-          addLog(`✓ Invoice saved to Drive: ${dinv.folder}/${dinv.fileName}`,"ok");
-          setEntries(p=>p.map(e=>e.id===entry.id?{...e,invoiceUrl:dinv.viewUrl,invoiceFileId:dinv.fileId}:e));
-          showToast(`📄 Invoice saved to Drive — ${dinv.folder}`,"success");
-        }else{
-          addLog(`⚠ Invoice Drive upload failed: ${dinv.error} — kept locally`,"warn");
-          showToast(`Invoice kept locally (Drive upload failed: ${dinv.error})`,"warning");
+        if(savedInvoice && r.success){
+          addLog(`→ Uploading invoice to Google Drive...`,"info");
+          const base64inv = savedInvoice.split(",")[1];
+          const dinv = await callScript("saveReceipt",{
+            txnId, base64: base64inv, mimeType: savedInvoiceMime||"image/jpeg",
+            date: entry.date, member: entry.member, fileType: "invoice"
+          });
+          if(dinv.success){
+            addLog(`✓ Invoice saved to Drive: ${dinv.folder}/${dinv.fileName}`,"ok");
+            setEntries(p=>p.map(e=>e.id===entry.id?{...e,invoiceUrl:dinv.viewUrl,invoiceFileId:dinv.fileId}:e));
+            showToast(`📄 Invoice saved to Drive — ${dinv.folder}`,"success");
+          }else{
+            addLog(`⚠ Invoice Drive upload failed: ${dinv.error} — kept locally`,"warn");
+            showToast(`Invoice kept locally (Drive upload failed: ${dinv.error})`,"warning");
+          }
         }
-      }
-      setTimeout(()=>setSyncStatus(null),3000);
-    }else{addLog("No DB connected — entry saved locally only","warn");}
+        setTimeout(()=>setSyncStatus(null),3000);
+      }else{addLog("No DB connected — entry saved locally only","warn");}
+    } catch(submitErr) {
+      // Catch-all: log the error, show toast, never leave button stuck
+      addLog(`✗ Unexpected submit error: ${submitErr.message}`,"error");
+      showToast(`Unexpected error — please try again (${submitErr.message})`,"error");
+    } finally {
+      // CRITICAL FIX: setSubmitting(false) ALWAYS runs — button can never get stuck
+      setSubmitting(false);
+    }
   };
 
   // Gold highlight for treasurer member names
@@ -1685,6 +2438,29 @@ export default function App() {
     setMembers(p=>p.filter(m=>m!==name));
     showToast(`Removed ${name}`,"info");
     if(scriptUrl)await callScript("removeMember",{name});
+  };
+
+  // Save a member's PIN (first-login set or change)
+  const handleSaveMemberPin=async(name, pin)=>{
+    setMemberPins(p=>({...p,[name]:String(pin)}));
+    addLog(`→ Saving PIN for ${name}...`,"info");
+    if(scriptUrl){
+      const r=await callScript("setMemberPin",{name,pin:String(pin)});
+      if(r.success) addLog(`✓ PIN saved for ${name}`,"ok");
+      else addLog(`⚠ PIN save failed: ${r.error}`,"warn");
+    }
+  };
+
+  // Reset a member's PIN (Treasurer action — clears it so they set a new one on next login)
+  const handleResetMemberPin=async(name)=>{
+    setMemberPins(p=>{const n={...p}; delete n[name]; return n;});
+    showToast(`🔑 PIN cleared for ${name} — they'll set a new one on next login`,"info");
+    addLog(`→ Resetting PIN for ${name}...`,"info");
+    if(scriptUrl){
+      const r=await callScript("setMemberPin",{name,pin:""});
+      if(r.success) addLog(`✓ PIN reset for ${name}`,"ok");
+      else addLog(`⚠ PIN reset failed: ${r.error}`,"warn");
+    }
   };
 
   const handleAddVendor=(name)=>{
@@ -2191,9 +2967,10 @@ export default function App() {
             </div>
           </div>
           <div style={{display:"flex",gap:2,alignItems:"center"}}>
-            {[["submit","Submit","wall"],["dashboard","Treasurer","bar"],["events","Events","star"],["members","Members","user"]].map(([v,l,i])=>(
+            {[["submit","Submit","wall"],["txns","Transactions","eye"],["dashboard","Treasurer","bar"],["events","Events","star"],["members","Members","user"]].map(([v,l,i])=>(
               <button key={v} className="nt nav-btn" onClick={()=>{
                 if((v==="dashboard"||v==="events"||v==="members")&&!isTreasurer){setPendingView(v);setShowPin(true);}
+                else if(v==="txns"&&!verifiedMember){setPendingView("txns");setShowMemberPin(true);}
                 else setView(v);
               }} style={{background:"none",border:"none",borderBottom:`2px solid ${view===v?"#fbbf24":"transparent"}`,color:view===v?"#fbbf24":"rgba(255,255,255,0.45)",padding:"8px 15px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:view===v?700:500,fontSize:13,display:"flex",alignItems:"center",gap:6,position:"relative"}}>
                 <Icon n={i} s={14}/><span className="nav-label">{l}</span>
@@ -2237,11 +3014,17 @@ export default function App() {
       <div className="content-wrap" style={{maxWidth:1100,margin:"0 auto",padding:"30px 24px"}}>
 
         {/* ════ SUBMIT ════ */}
-        {view==="submit" && !verifiedMember && (
+        {(view==="submit"||view==="txns") && !verifiedMember && (
           <MemberPinModal
             members={members}
             memberPins={memberPins}
-            onSuccess={name=>{setVerifiedMember(name);setForm(f=>({...f,member:name}));}}
+            onSavePin={handleSaveMemberPin}
+            onSuccess={name=>{
+              setVerifiedMember(name);
+              setForm(f=>({...f,member:name}));
+              // If member was navigating to Transactions tab, go there
+              if(pendingView==="txns"){setView("txns");setPendingView(null);}
+            }}
             onClose={()=>setView("submit")}
           />
         )}
@@ -2252,7 +3035,7 @@ export default function App() {
                 <div>
                   <h2 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:27,color:"#fbbf24",margin:"0 0 4px"}}>Submit Expense</h2>
                   <p style={{color:"rgba(255,255,255,0.4)",fontSize:13,margin:0}}>Attach a receipt or screenshot for your records</p>
-                  {verifiedMember&&<div style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:6,background:isTreasurerMember(verifiedMember)?"rgba(251,191,36,0.1)":"rgba(16,185,129,0.1)",border:`1px solid ${isTreasurerMember(verifiedMember)?"rgba(251,191,36,0.4)":"rgba(16,185,129,0.3)"}`,borderRadius:8,padding:"4px 10px",fontSize:12,color:isTreasurerMember(verifiedMember)?"#fbbf24":"#10b981",fontWeight:700}}>✓ Verified: {verifiedMember}{isTreasurerMember(verifiedMember)&&<span style={{fontSize:10,opacity:0.8}}> ★ Treasurer</span>} <button onClick={()=>{setVerifiedMember(null);setForm(f=>({...f,member:""}));}} style={{background:"none",border:"none",color:"rgba(255,255,255,0.3)",cursor:"pointer",fontSize:11,padding:0,marginLeft:2}}>switch</button></div>}
+                  {verifiedMember&&<div style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:6,background:isTreasurerMember(verifiedMember)?"rgba(251,191,36,0.1)":"rgba(16,185,129,0.1)",border:`1px solid ${isTreasurerMember(verifiedMember)?"rgba(251,191,36,0.4)":"rgba(16,185,129,0.3)"}`,borderRadius:8,padding:"4px 10px",fontSize:12,color:isTreasurerMember(verifiedMember)?"#fbbf24":"#10b981",fontWeight:700}}>✓ Verified: {verifiedMember}{isTreasurerMember(verifiedMember)&&<span style={{fontSize:10,opacity:0.8}}> ★ Treasurer</span>}</div>}
                 </div>
                 <button onClick={()=>setShowBulk(true)} style={{flexShrink:0,background:"linear-gradient(135deg,#3730a3,#4f46e5)",color:"#fff",border:"none",borderRadius:11,padding:"9px 15px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,display:"flex",alignItems:"center",gap:7,boxShadow:"0 4px 16px rgba(99,102,241,0.4)",whiteSpace:"nowrap"}}>
                   <span style={{fontSize:15}}>📥</span> Bulk Import
@@ -2374,10 +3157,19 @@ export default function App() {
                 )}
                 <div>
                   <label style={{...LBL,color:fieldErrors.member?"#ef4444":undefined}}>Member Name *</label>
-                  <select value={form.member} onChange={e=>{setForm(f=>({...f,member:e.target.value}));clearFieldError("member");}} style={inpStyle("member")}>
-                    <option value="">Select your name</option>
-                    {members.map(m=><option key={m}>{m}</option>)}
-                  </select>
+                  {/* BUG 2 FIX: Lock member field to verified identity — cannot change to another member */}
+                  {verifiedMember ? (
+                    <div style={{...INP,display:"flex",alignItems:"center",gap:10,background:"rgba(16,185,129,0.07)",border:"1.5px solid rgba(16,185,129,0.35)",cursor:"default",userSelect:"none",paddingTop:9,paddingBottom:9}}>
+                      <span style={{fontSize:16}}>✓</span>
+                      <span style={{flex:1,fontWeight:700,color:isTreasurerMember(verifiedMember)?"#fbbf24":"#10b981"}}>{verifiedMember}{isTreasurerMember(verifiedMember)&&<span style={{fontSize:10,opacity:0.8}}> ★ Treasurer</span>}</span>
+                      <button type="button" onClick={()=>{setVerifiedMember(null);setForm(f=>({...f,member:""}));}} style={{background:"none",border:"none",color:"rgba(255,255,255,0.35)",cursor:"pointer",fontSize:11,fontFamily:"'DM Sans',sans-serif",padding:"2px 6px",borderRadius:5,border:"1px solid rgba(255,255,255,0.12)"}}>switch</button>
+                    </div>
+                  ) : (
+                    <select value={form.member} onChange={e=>{setForm(f=>({...f,member:e.target.value}));clearFieldError("member");}} style={inpStyle("member")}>
+                      <option value="">Select your name</option>
+                      {members.map(m=><option key={m}>{m}</option>)}
+                    </select>
+                  )}
                   <FieldErr k="member"/>
                 </div>
 
@@ -2463,7 +3255,37 @@ export default function App() {
                   <input value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} placeholder="Any additional context" style={INP}/>
                 </div>
 
-                <button onClick={handleSubmit} disabled={submitting} style={{...BLUE_BTN,width:"100%",justifyContent:"center",marginTop:4,opacity:submitting?0.7:1}}>
+                {/* ── Duplicate Warning Panel ── */}
+                {dupWarning && (
+                  <div style={{background:dupWarning.level==="hard"?"rgba(239,68,68,0.1)":"rgba(245,158,11,0.08)",
+                    border:`1px solid ${dupWarning.level==="hard"?"rgba(239,68,68,0.45)":"rgba(245,158,11,0.4)"}`,
+                    borderRadius:12,padding:"12px 15px"}}>
+                    <div style={{fontSize:13,fontWeight:700,
+                      color:dupWarning.level==="hard"?"#ef4444":"#f59e0b",marginBottom:6,display:"flex",alignItems:"center",gap:7}}>
+                      {dupWarning.level==="hard"?"🔴 Exact Duplicate Detected":"🟡 Possible Duplicate"}
+                    </div>
+                    <div style={{fontSize:12,color:"rgba(255,255,255,0.55)",marginBottom:10,lineHeight:1.5}}>
+                      {dupWarning.msg}
+                    </div>
+                    <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
+                      <input type="checkbox" checked={dupOverride} onChange={e=>setDupOverride(e.target.checked)}
+                        style={{width:15,height:15,accentColor:dupWarning.level==="hard"?"#ef4444":"#f59e0b",cursor:"pointer"}}/>
+                      <span style={{fontSize:12,color:"rgba(255,255,255,0.6)",fontWeight:600}}>
+                        I confirm this is a different transaction and not a duplicate
+                      </span>
+                    </label>
+                    {dupOverride && (
+                      <div style={{marginTop:6,fontSize:11,color:"rgba(16,185,129,0.7)",fontWeight:600}}>
+                        ✓ Override acknowledged — you can now submit
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <button onClick={handleSubmit}
+                  disabled={submitting || (dupWarning && !dupOverride)}
+                  style={{...BLUE_BTN,width:"100%",justifyContent:"center",marginTop:4,
+                    opacity:(submitting||(dupWarning&&!dupOverride))?0.6:1}}>
                   {submitting?<><Spin/>Submitting...</>:<><Icon n="plus" s={17}/>Submit Expense</>}
                 </button>
               </div>
@@ -3005,6 +3827,21 @@ export default function App() {
           </div>
         )}
         {/* ════ MEMBERS BALANCE SHEET ════ */}
+        {/* ════ TRANSACTIONS — member read-only view ════ */}
+        {view==="txns" && verifiedMember && (
+          <TxnsView
+            entries={entries}
+            events={events}
+            verifiedMember={verifiedMember}
+            isTreasurer={isTreasurer}
+            isTreasurerMember={isTreasurerMember}
+            onViewReceipt={(entry)=>{
+              if(entry.receiptUrl) setViewingReceipt({txnId:entry.txnId,driveUrl:entry.receiptUrl,dataUrl:entry.receiptDataUrl||null});
+              else if(entry.receiptDataUrl) setViewingReceipt({txnId:entry.txnId,dataUrl:entry.receiptDataUrl});
+            }}
+          />
+        )}
+
         {view==="members" && (
           <MemberBalanceSheet
             entries={entries}
@@ -3114,13 +3951,29 @@ export default function App() {
           </div>
         </div>
       )}
-      {showBulk&&<BulkImportModal members={members} events={events} onImport={handleBulkImport} onClose={()=>setShowBulk(false)}/>}
-      {showPin&&<PinModal onSuccess={(pin)=>{
-        if(!treasurerPin){addLog("PIN auth failed — PIN not loaded from DB","error");showToast("PIN not set — please connect to the database first","error");setShowPin(false);return;}
-        if(pin===treasurerPin){addLog("PIN auth success — treasurer unlocked","ok");setIsTreasurer(true);setView(pendingView||"dashboard");setShowPin(false);showToast("🔓 Treasurer view unlocked","success");}
-        else{addLog(`PIN auth failed — wrong PIN entered`,"warn");showToast("Wrong PIN — try again","error");setShowPin(false);}
+      {showBulk&&<BulkImportModal members={members} events={events} entries={entries} verifiedMember={verifiedMember} onImport={handleBulkImport} onClose={()=>setShowBulk(false)}/>}
+      {showPin&&<PinModal onSuccess={(pin, cb)=>{
+        if(!treasurerPin){
+          addLog("PIN auth failed — PIN not loaded from DB","error");
+          showToast("PIN not set — please connect to the database first","error");
+          setShowPin(false);
+          cb&&cb(false);
+          return;
+        }
+        if(pin===treasurerPin){
+          addLog("PIN auth success — treasurer unlocked","ok");
+          setIsTreasurer(true);
+          setView(pendingView||"dashboard");
+          setShowPin(false);
+          showToast("🔓 Treasurer view unlocked","success");
+          cb&&cb(true);
+        } else {
+          addLog("PIN auth failed — wrong PIN entered","warn");
+          // Do NOT close modal — let it track attempts and lock out at 5
+          cb&&cb(false);
+        }
       }} onClose={()=>setShowPin(false)}/>}
-      {showMemberPanel&&<MemberPanel members={members} onAdd={handleAddMember} onRemove={handleRemoveMember} onClose={()=>setShowMemberPanel(false)}/>}
+      {showMemberPanel&&<MemberPanel members={members} memberPins={memberPins} onAdd={handleAddMember} onRemove={handleRemoveMember} onResetPin={handleResetMemberPin} onClose={()=>setShowMemberPanel(false)}/>}
       {showVendorPanel&&<VendorPanel vendors={vendors} onAdd={handleAddVendor} onRemove={handleRemoveVendor} onClose={()=>setShowVendorPanel(false)}/>}
       {editEntry&&<EditEntryModal entry={editEntry} members={members} events={events} categories={CATEGORIES} onSave={handleEditEntry} onClose={()=>setEditEntry(null)}/>}
       {deleteEntry&&(
