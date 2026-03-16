@@ -425,6 +425,7 @@ function CreateEventModal({onSave,onClose}) {
    BULK IMPORT MODAL
 ═══════════════════════════════════════════════════════════ */
 function BulkImportModal({members, events, entries: existingEntries, verifiedMember, onImport, onClose}) {
+  const {mob} = useBP();
   const [member,    setMember]    = useState(verifiedMember || "");
   const [rows,      setRows]      = useState([]);
   const [vendor,    setVendor]    = useState("");
@@ -650,7 +651,7 @@ function BulkImportModal({members, events, entries: existingEntries, verifiedMem
               </div>
 
               {/* Create / Apply buttons */}
-              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              <div style={{display:"flex",flexDirection:"column",gap:6,gridColumn:mob?"span 2":undefined}}>
                 <button onClick={handleCreateTemplate}
                   style={{background:"linear-gradient(135deg,#4f46e5,#818cf8)",color:"#fff",border:"none",
                     borderRadius:10,padding:"9px 16px",fontWeight:800,fontSize:13,cursor:"pointer",
@@ -710,7 +711,7 @@ function BulkImportModal({members, events, entries: existingEntries, verifiedMem
               </div>
 
               {/* Mobile: card per row. Desktop: table. Breakpoint at 640px via window check */}
-              {typeof window !== "undefined" && window.innerWidth < 640 ? (
+              {mob ? (
                 /* ── MOBILE CARD LAYOUT ── */
                 <div style={{display:"flex",flexDirection:"column",gap:12}}>
                   {rows.map((row, rowIdx) => {
@@ -863,7 +864,7 @@ function BulkImportModal({members, events, entries: existingEntries, verifiedMem
               ) : (
                 /* ── DESKTOP TABLE LAYOUT ── */
                 <div style={{overflowX:"auto"}}>
-                  <table style={{width:"100%",borderCollapse:"collapse",minWidth:900}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",minWidth:720}}>
                     <thead>
                       <tr style={{borderBottom:"1px solid rgba(99,102,241,0.25)"}}>
                         {["","#","Date","Amount (₹)","Vendor / UPI","Purpose","Category","📸 UPI","🧾 Bill","⚠ Dup","Actions"].map(h=>(
@@ -1589,6 +1590,7 @@ function VendorPanel({vendors,onAdd,onRemove,onClose}) {
    TRANSACTIONS VIEW — read-only for all verified members
 ═══════════════════════════════════════════════════════════ */
 function TxnsView({entries, events, verifiedMember, isTreasurer, isTreasurerMember, onViewReceipt}) {
+  const {mob} = useBP();
   const [searchQ,  setSearchQ]  = useState("");
   const [fCat,     setFCat]     = useState("all");
   const [fMonth,   setFMonth]   = useState("all");
@@ -1663,10 +1665,9 @@ function TxnsView({entries, events, verifiedMember, isTreasurer, isTreasurerMemb
 
       {/* Search + Filters */}
       <div style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",
-        borderRadius:13,padding:"12px 16px",marginBottom:14,
-        display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-        {/* Search */}
-        <div style={{position:"relative",flex:"1 1 180px",minWidth:160}}>
+        borderRadius:13,padding:"12px 16px",marginBottom:14}}>
+        {/* Search — always full width */}
+        <div style={{position:"relative",marginBottom:8}}>
           <input value={searchQ} onChange={e=>setSearchQ(e.target.value)}
             placeholder="🔍 Search purpose, member, ID..."
             style={{...INP,width:"100%",boxSizing:"border-box",paddingRight:searchQ?28:12}}/>
@@ -1678,33 +1679,35 @@ function TxnsView({entries, events, verifiedMember, isTreasurer, isTreasurerMemb
             </button>
           )}
         </div>
-        {/* Filters */}
-        {[
-          {val:fYear,   set:setFYear,   opts:[["all","All Years"],   ...allYears.map(y=>[String(y),String(y)])]},
-          {val:fMonth,  set:setFMonth,  opts:[["all","All Months"],  ...MONTHS.map((m,i)=>[String(i),m])]},
-          {val:fCat,    set:setFCat,    opts:[["all","All Categories"],...CATEGORIES.map(c=>[c.code,`${c.icon} ${c.label}`])]},
-          {val:fStatus, set:setFStatus, opts:[["all","All Status"],  ["Pending","⏳ Pending"],["Reimbursed","✅ Reimbursed"]]},
-        ].map(({val,set,opts},i)=>(
-          <select key={i} value={val} onChange={e=>set(e.target.value)}
-            style={{...INP,flex:"0 0 auto"}}>
-            {opts.map(([v,l])=><option key={v} value={v}>{l}</option>)}
-          </select>
-        ))}
-        <button onClick={()=>{setSearchQ("");setFYear(String(new Date().getFullYear()));setFMonth("all");setFCat("all");setFStatus("all");}}
-          style={{...INP,cursor:"pointer",display:"flex",alignItems:"center",gap:4,
-            background:"rgba(255,255,255,0.04)"}}>
-          <Icon n="ref" s={11}/> Reset
-        </button>
-        <span style={{fontSize:11,color:"rgba(255,255,255,0.25)",marginLeft:4}}>
-          {filtered.length} entries
-        </span>
+        {/* Filters — 2-col on mobile, single row on desktop */}
+        <div style={{display:"grid",gridTemplateColumns:mob?"1fr 1fr":"repeat(4,1fr) auto auto",gap:6,alignItems:"center"}}>
+          {[
+            {val:fYear,   set:setFYear,   opts:[["all","All Years"],   ...allYears.map(y=>[String(y),String(y)])]},
+            {val:fMonth,  set:setFMonth,  opts:[["all","All Months"],  ...MONTHS.map((m,i)=>[String(i),m])]},
+            {val:fCat,    set:setFCat,    opts:[["all","All Cat"],      ...CATEGORIES.map(c=>[c.code,`${c.icon} ${c.label}`])]},
+            {val:fStatus, set:setFStatus, opts:[["all","All Status"],   ["Pending","⏳ Pending"],["Reimbursed","✅ Reimbursed"]]},
+          ].map(({val,set,opts},i)=>(
+            <select key={i} value={val} onChange={e=>set(e.target.value)}
+              style={{...INP,width:"100%",boxSizing:"border-box",fontSize:mob?11:12}}>
+              {opts.map(([v,l])=><option key={v} value={v}>{l}</option>)}
+            </select>
+          ))}
+          <button onClick={()=>{setSearchQ("");setFYear(String(new Date().getFullYear()));setFMonth("all");setFCat("all");setFStatus("all");}}
+            style={{...INP,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:4,
+              background:"rgba(255,255,255,0.04)",gridColumn:mob?"span 2":undefined}}>
+            <Icon n="ref" s={11}/>{mob?" Reset":"Reset"}
+          </button>
+        </div>
+        <div style={{fontSize:11,color:"rgba(255,255,255,0.25)",marginTop:6,textAlign:"right"}}>
+          {filtered.length} entries · {fmt(totalAmt)}
+        </div>
       </div>
 
       {/* Table */}
       <div style={{background:"rgba(255,255,255,0.02)",borderRadius:14,
-        border:"1px solid rgba(255,255,255,0.06)",overflow:"hidden"}}>
-        <div style={{overflowX:"auto"}}>
-          <table style={{width:"100%",borderCollapse:"collapse",minWidth:680}}>
+        border:"1px solid rgba(255,255,255,0.06)",overflowX:"auto",
+        WebkitOverflowScrolling:"touch"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
             <thead>
               <tr style={{borderBottom:"1px solid rgba(251,191,36,0.12)"}}>
                 {["Txn ID","Date","Member","Category","Purpose","Amount","Status","📎"].map(h=>(
@@ -1821,7 +1824,6 @@ function TxnsView({entries, events, verifiedMember, isTreasurer, isTreasurerMemb
               })}
             </tbody>
           </table>
-        </div>
       </div>
 
       {/* Footer note */}
@@ -1877,7 +1879,7 @@ function MemberBalanceSheet({entries, members, treasurerMembers=[], onBatchReimb
         </p>
       </div>
 
-      <div style={{display:"grid",gridTemplateColumns:selectedMember?"320px 1fr":"1fr",gap:20,alignItems:"start"}}>
+      <div className="balance-grid" style={{display:"grid",gridTemplateColumns:selectedMember?"minmax(200px,320px) 1fr":"1fr",gap:20,alignItems:"start"}}>
 
         {/* Member list */}
         <div style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:16,overflow:"hidden"}}>
@@ -2960,6 +2962,10 @@ export default function App() {
           .pay-toggle button{font-size:9px!important;padding:7px 2px!important;}
           .hdr-conn-btn{font-size:10px!important;padding:5px 7px!important;}
           .hdr-actions{gap:4px!important;}
+          .balance-grid{grid-template-columns:1fr!important;}
+          .tbl-wrap{overflow-x:auto!important;-webkit-overflow-scrolling:touch!important;}
+          .tbl-wrap table{min-width:520px!important;}
+          .bulk-modal{padding:12px!important;}
         }
 
         /* ══ MOBILE XS-PLUS: 360–389px (OnePlus 12R, many mid-range Android) ══ */
@@ -2972,6 +2978,7 @@ export default function App() {
         /* ══ MOBILE S: 390–479px (iPhone 14/15, Pixel 6a) ══ */
         /* 390-419px: iPhone 14/15 base, OnePlus 12R (412px), iQOO Neo 10R (412px) */
         @media(min-width:390px) and (max-width:419px){
+          .balance-grid{grid-template-columns:1fr!important;}
           .nav-label{display:none!important;}
           .nav-btn{padding:6px 6px!important;font-size:10px!important;}
           .hdr-inner{padding:0 8px!important;height:52px!important;}
@@ -2991,6 +2998,7 @@ export default function App() {
 
         /* 420-479px: Pixel 6a, Samsung A-series */
         @media(min-width:420px) and (max-width:479px){
+          .balance-grid{grid-template-columns:1fr!important;}
           .nav-label{display:none!important;}
           .nav-btn{padding:7px 8px!important;font-size:11px!important;}
           .hdr-inner{padding:0 10px!important;height:54px!important;}
@@ -3009,6 +3017,7 @@ export default function App() {
 
         /* ══ MOBILE L: 480–639px (6.5–6.7″ Android, iPhone Plus/Max) ══ */
         @media(min-width:480px) and (max-width:639px){
+          .balance-grid{grid-template-columns:1fr!important;}
           .nav-label{display:none!important;}
           .nav-btn{padding:8px 10px!important;font-size:11px!important;}
           .hdr-inner{padding:0 14px!important;height:56px!important;}
@@ -3042,7 +3051,11 @@ export default function App() {
           .cat-grid{grid-template-columns:repeat(3,1fr)!important;}
           .stat-grid{grid-template-columns:repeat(3,1fr)!important;}
           .ev-grid{grid-template-columns:repeat(auto-fill,minmax(320px,1fr))!important;}
+          .tbl-wrap{overflow-x:auto!important;}
         }
+        /* ══ GLOBAL: all sizes — tbl-wrap always scrollable, never clipped ══ */
+        .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%;}
+        .tbl-wrap table{table-layout:auto;}
 
         /* ══ WIDE MONITOR: 1440px+ ══ */
         @media(min-width:1440px){
@@ -3091,15 +3104,15 @@ export default function App() {
               </span>
             )}
             {isTreasurer&&(
-              <button onClick={()=>{setIsTreasurer(false);setView("submit");showToast("Locked — back to member view","info");}} style={{background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.2)",color:"#ef4444",borderRadius:10,padding:"7px 11px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,display:"flex",alignItems:"center",gap:5}}>
-                🔒 Lock
-              </button>
-            )}
-            {isTreasurer&&(
-              <button onClick={()=>setShowSheets(true)} style={{marginLeft:6,background:dbReady?"rgba(16,185,129,0.1)":"rgba(251,191,36,0.08)",border:`1px solid ${dbReady?"rgba(16,185,129,0.3)":"rgba(251,191,36,0.25)"}`,color:dbReady?"#10b981":"#fbbf24",borderRadius:10,padding:"7px 13px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,display:"flex",alignItems:"center",gap:6}}>
-                <Icon n="sht" s={13}/>
-                {syncStatus==="syncing"?<><Spin/>Syncing</>:syncStatus==="ok"?"✓ Saved":syncStatus==="fail"?"⚠ Sync fail":dbReady?"● DB Live":"Connect DB"}
-              </button>
+              <span className="hdr-extra-btns" style={{display:"contents"}}>
+                <button onClick={()=>{setIsTreasurer(false);setView("submit");showToast("Locked — back to member view","info");}} style={{background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.2)",color:"#ef4444",borderRadius:10,padding:"7px 11px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,display:"flex",alignItems:"center",gap:5}}>
+                  🔒 Lock
+                </button>
+                <button onClick={()=>setShowSheets(true)} style={{marginLeft:4,background:dbReady?"rgba(16,185,129,0.1)":"rgba(251,191,36,0.08)",border:`1px solid ${dbReady?"rgba(16,185,129,0.3)":"rgba(251,191,36,0.25)"}`,color:dbReady?"#10b981":"#fbbf24",borderRadius:10,padding:"7px 13px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,display:"flex",alignItems:"center",gap:6}}>
+                  <Icon n="sht" s={13}/>
+                  {syncStatus==="syncing"?<><Spin/>Syncing</>:syncStatus==="ok"?"✓ Saved":syncStatus==="fail"?"⚠ Sync fail":dbReady?"● DB Live":"Connect DB"}
+                </button>
+              </span>
             )}
             {/* Sync status indicator for members — no connect button, just shows sync state */}
             {!isTreasurer&&syncStatus&&(
@@ -3128,6 +3141,7 @@ export default function App() {
           />
         )}
         {view==="submit" && verifiedMember && (
+          <>
           <div className="form-grid" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:26,alignItems:"start"}}>
             <div>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
@@ -3390,27 +3404,29 @@ export default function App() {
               </div>
             </div>
 
-            {/* ── Inline Transactions Panel — visible once member is verified ── */}
-            <div style={{marginTop:32}}>
-              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
-                <div style={{flex:1,height:1,background:"rgba(255,255,255,0.07)"}}/>
-                <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.25)",
-                  textTransform:"uppercase",letterSpacing:"0.09em"}}>Community Transactions</span>
-                <div style={{flex:1,height:1,background:"rgba(255,255,255,0.07)"}}/>
-              </div>
-              <TxnsView
-                entries={entries}
-                events={events}
-                verifiedMember={verifiedMember}
-                isTreasurer={isTreasurer}
-                isTreasurerMember={isTreasurerMember}
-                onViewReceipt={(entry)=>{
-                  if(entry.receiptUrl) setViewingReceipt({txnId:entry.txnId,driveUrl:entry.receiptUrl,dataUrl:entry.receiptDataUrl||null});
-                  else if(entry.receiptDataUrl) setViewingReceipt({txnId:entry.txnId,dataUrl:entry.receiptDataUrl});
-                }}
-              />
-            </div>
           </div>
+
+          {/* ── Community Transactions — full width below the form grid ── */}
+          <div style={{marginTop:36}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
+              <div style={{flex:1,height:1,background:"rgba(255,255,255,0.07)"}}/>
+              <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.25)",
+                textTransform:"uppercase",letterSpacing:"0.09em"}}>Community Transactions</span>
+              <div style={{flex:1,height:1,background:"rgba(255,255,255,0.07)"}}/>
+            </div>
+            <TxnsView
+              entries={entries}
+              events={events}
+              verifiedMember={verifiedMember}
+              isTreasurer={isTreasurer}
+              isTreasurerMember={isTreasurerMember}
+              onViewReceipt={(entry)=>{
+                if(entry.receiptUrl) setViewingReceipt({txnId:entry.txnId,driveUrl:entry.receiptUrl,dataUrl:entry.receiptDataUrl||null});
+                else if(entry.receiptDataUrl) setViewingReceipt({txnId:entry.txnId,dataUrl:entry.receiptDataUrl});
+              }}
+            />
+          </div>
+          </>
         )}
 
         {/* ════ DASHBOARD ════ */}
@@ -3437,7 +3453,6 @@ export default function App() {
                   <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
                   PDF Report
                 </button>
-              </div>
             </div>
 
             {/* Member pending banner — shown when a member filter is active */}
@@ -3621,8 +3636,7 @@ export default function App() {
             </div>
 
             {/* Entries Table */}
-            <div style={{background:"rgba(255,255,255,0.02)",borderRadius:16,overflow:"hidden",border:"1px solid rgba(255,255,255,0.06)"}}>
-              <div className="tbl-wrap" style={{overflowX:"auto"}}>
+            <div style={{background:"rgba(255,255,255,0.02)",borderRadius:16,border:"1px solid rgba(255,255,255,0.06)",overflowX:"auto"}} className="tbl-wrap">
                 {(()=>{
                   const EntryRow = ({e, isRecurring, recurType})=>{
                     const cat=catByCode(e.categoryCode||"GNMI");
@@ -3713,7 +3727,7 @@ export default function App() {
 
                   if(!groupedView){
                     return (
-                      <table style={{width:"100%",borderCollapse:"collapse",minWidth:820}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",minWidth:640}}>
                         <TH/>
                         <tbody>
                           {filtered.length===0
@@ -3730,7 +3744,7 @@ export default function App() {
 
                   // Grouped view
                   return (
-                    <table style={{width:"100%",borderCollapse:"collapse",minWidth:820}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",minWidth:640}}>
                       <TH/>
                       <tbody>
                         {/* Recurring section header */}
