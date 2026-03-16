@@ -2296,7 +2296,6 @@ export default function App() {
   const [treasurerMembers,setTreasurerMembers] = useState([]); // names with role=Treasurer in Sheets
   const [verifiedMember,setVerifiedMember] = useState(null);
   const [showMemberPin,setShowMemberPin]   = useState(false);
-  const [memberPins,setMemberPins]         = useState({});
   const [dupWarning,setDupWarning]         = useState(null);
   const [dupOverride,setDupOverride]       = useState(false);
   const [showMemberPanel,setShowMemberPanel] = useState(false);
@@ -3210,7 +3209,7 @@ export default function App() {
             {isTreasurer&&<button onClick={()=>setShowSheets(true)} style={{marginLeft:6,background:dbReady?"rgba(16,185,129,0.1)":"rgba(251,191,36,0.08)",border:`1px solid ${dbReady?"rgba(16,185,129,0.3)":"rgba(251,191,36,0.25)"}`,color:dbReady?"#10b981":"#fbbf24",borderRadius:10,padding:"7px 13px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,display:"flex",alignItems:"center",gap:6}}>
               <Icon n="sht" s={13}/>
               {syncStatus==="syncing"?<><Spin/>Syncing</>:syncStatus==="ok"?"✓ Saved":syncStatus==="fail"?"⚠ Sync fail":dbReady?"● DB Live":"Connect DB"}
-            </button>
+            </button>}
             <button onClick={()=>setShowDebug(v=>!v)} title="Debug Log" style={{marginLeft:4,background:debugLog.some(l=>l.level==="error")?"rgba(239,68,68,0.15)":"rgba(255,255,255,0.05)",border:`1px solid ${debugLog.some(l=>l.level==="error")?"rgba(239,68,68,0.4)":"rgba(255,255,255,0.1)"}`,color:debugLog.some(l=>l.level==="error")?"#ef4444":"rgba(255,255,255,0.4)",borderRadius:10,padding:"7px 10px",cursor:"pointer",fontSize:12,fontFamily:"'DM Sans',sans-serif",fontWeight:600,display:"flex",alignItems:"center",gap:5,position:"relative"}}>
               🪲
               {debugLog.filter(l=>l.level==="error").length>0&&<span style={{background:"#ef4444",color:"#fff",borderRadius:10,fontSize:9,fontWeight:800,padding:"1px 5px"}}>{debugLog.filter(l=>l.level==="error").length}</span>}
