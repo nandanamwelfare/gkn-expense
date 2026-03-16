@@ -717,9 +717,9 @@ function BulkImportModal({members, events, entries: existingEntries, verifiedMem
                   {rows.map((row, rowIdx) => {
                     const dup = checkDup(row, rowIdx);
                     const cat = catByCode(row.categoryCode);
-                    const cardBorder = dup?.level==="hard"&&!row.overrideDup
+                    const cardBorder = (dup && dup.level)==="hard"&&!row.overrideDup
                       ? "1.5px solid rgba(239,68,68,0.5)"
-                      : dup?.level==="soft"&&!row.overrideDup
+                      : (dup && dup.level)==="soft"&&!row.overrideDup
                         ? "1.5px solid rgba(245,158,11,0.4)"
                         : "1px solid rgba(99,102,241,0.2)";
                     return (
@@ -878,12 +878,12 @@ function BulkImportModal({members, events, entries: existingEntries, verifiedMem
                       {rows.map((row, rowIdx) => {
                         const dup  = checkDup(row, rowIdx);
                         const cat  = catByCode(row.categoryCode);
-                        const rowBg = dup?.level==="hard" && !row.overrideDup
+                        const rowBg = (dup && dup.level)==="hard" && !row.overrideDup
                           ? "rgba(239,68,68,0.07)"
-                          : dup?.level==="soft" && !row.overrideDup
+                          : (dup && dup.level)==="soft" && !row.overrideDup
                             ? "rgba(245,158,11,0.05)"
                             : "transparent";
-                        const rowBorder = dup?.level==="hard" && !row.overrideDup
+                        const rowBorder = (dup && dup.level)==="hard" && !row.overrideDup
                           ? "2px solid rgba(239,68,68,0.5)"
                           : "2px solid transparent";
 
@@ -1835,6 +1835,50 @@ function TxnsView({entries, events, verifiedMember, isTreasurer, isTreasurerMemb
 }
 
 /* ═══════════════════════════════════════════════════════════
+   BREAKDOWN PANEL — Category + Member totals
+   Extracted as component to avoid esbuild regex misparse
+═══════════════════════════════════════════════════════════ */
+function BreakdownPanel({catItems, memberItems, totalAmt, fmt}) {
+  const panels = [
+    {title:"By Category", items:catItems},
+    {title:"By Member",   items:memberItems},
+  ];
+  return (
+    <div style={{marginTop:20,display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+      {panels.map(function(panel){
+        return (
+          <div key={panel.title} style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:16,padding:18}}>
+            <h3 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:16,color:"#fbbf24",margin:"0 0 14px"}}>{panel.title}</h3>
+            {panel.items.map(function(row){
+              var name = row[0];
+              var amt  = row[1];
+              var cat  = CATEGORIES.find(function(c){return c.label===name;});
+              var icon = cat ? cat.icon : "👤";
+              var pct  = totalAmt > 0 ? Math.round(amt * 100 / totalAmt) : 0;
+              var barW = pct + "%";
+              return (
+                <div key={name} style={{display:"flex",alignItems:"center",gap:9,marginBottom:11}}>
+                  <span style={{fontSize:15,width:22,textAlign:"center"}}>{icon}</span>
+                  <div style={{flex:1}}>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:12}}>
+                      <span style={{color:"rgba(255,255,255,0.65)",fontWeight:600}}>{name}</span>
+                      <span style={{color:"#fbbf24",fontWeight:800}}>{fmt(amt)}</span>
+                    </div>
+                    <div style={{height:4,background:"rgba(255,255,255,0.05)",borderRadius:2,marginTop:4}}>
+                      <div style={{height:"100%",background:"linear-gradient(90deg,#1d4ed8,#3b82f6)",borderRadius:2,width:barW,transition:"width 0.5s ease"}}/>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
    MEMBER BALANCE SHEET
 ═══════════════════════════════════════════════════════════ */
 function MemberBalanceSheet({entries, members, treasurerMembers=[], onBatchReimburse, onViewReceipt}) {
@@ -2619,7 +2663,7 @@ export default function App() {
       fMonth!=="all"?`Month: ${MONTHS[Number(fMonth)]}`:"",
       fStatus!=="all"?`Status: ${fStatus}`:"",
       fCat!=="all"?`Category: ${fCat}`:"",
-      fEvent!=="all"?("Event: "+(events.find(e=>e.id===fEvent)?.name||fEvent)):"",
+      fEvent!=="all"?("Event: "+((events.find(e=>e.id===fEvent)||{name:fEvent}).name)):"",
     ].filter(Boolean).join("  ·  ")||"All Records";
 
     const rows=filtered.map(e=>{
@@ -2645,7 +2689,7 @@ export default function App() {
       const cat=CATEGORIES.find(c=>c.label===name);
       const pct=totalAmt?((amt/totalAmt)*100).toFixed(1):0;
       return `<tr>
-        <td style="font-weight:600;color:#111827">${cat?.icon||""} ${name}</td>
+        <td style="font-weight:600;color:#111827">${ (cat && cat.icon) || "" } ${name}</td>
         <td style="text-align:right;font-weight:800;color:#111827;font-variant-numeric:tabular-nums">₹${Number(amt).toLocaleString("en-IN")}</td>
         <td style="text-align:right"><span style="background:#eff6ff;color:#1d4ed8;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">${pct}%</span></td>
       </tr>`;
@@ -3862,36 +3906,13 @@ export default function App() {
               </div>
 
             {/* Breakdowns */}
-            <div style={{marginTop:20,display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
-              {[
-                {title:"By Category", items:catBreakdownItems},
-                {title:"By Member",   items:memberBreakdownItems},
-              ].map(({title,items})=>(
-                <div key={title} style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:16,padding:18}}>
-                  <h3 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:16,color:"#fbbf24",margin:"0 0 14px"}}>{title}</h3>
-                  {items.map(([name,amt])=>{
-                    const cat=CATEGORIES.find(c=>c.label===name);
-                    const pct=totalAmt ? Math.round(amt/totalAmt*100) : 0;
-                    return (
-                      <div key={name} style={{display:"flex",alignItems:"center",gap:9,marginBottom:11}}>
-                        <span style={{fontSize:15,width:22,textAlign:"center"}}>{cat?.icon||"👤"}</span>
-                        <div style={{flex:1}}>
-                          <div style={{display:"flex",justifyContent:"space-between",fontSize:12}}>
-                            <span style={{color:"rgba(255,255,255,0.65)",fontWeight:600}}>{name}</span>
-                            <span style={{color:"#fbbf24",fontWeight:800}}>{fmt(amt)}</span>
-                          </div>
-                          <div style={{height:4,background:"rgba(255,255,255,0.05)",borderRadius:2,marginTop:4}}>
-                            <div style={{height:"100%",background:"linear-gradient(90deg,#1d4ed8,#3b82f6)",borderRadius:2,width:pct+"%",transition:"width 0.5s ease"}}/>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
+            <BreakdownPanel
+              catItems={catBreakdownItems}
+              memberItems={memberBreakdownItems}
+              totalAmt={totalAmt}
+              fmt={fmt}
+            />
           </div>
-        </div>
         )}
 
         {/* ════ EVENTS ════ */}
