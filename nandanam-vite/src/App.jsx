@@ -3844,7 +3844,6 @@ export default function App() {
                   );
                 })()}
               </div>
-            </div>
 
             {/* Breakdowns */}
             <div style={{marginTop:20,display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
@@ -3875,6 +3874,7 @@ export default function App() {
               ))}
             </div>
           </div>
+        </div>
         )}
 
         {/* ════ EVENTS ════ */}
