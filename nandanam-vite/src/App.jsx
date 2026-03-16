@@ -1608,7 +1608,7 @@ function TxnsView({entries, events, verifiedMember, isTreasurer, isTreasurerMemb
     if(fStatus!=="all" && e.status!==fStatus)                 return false;
     if(searchQ.trim()){
       const q = searchQ.toLowerCase();
-      if(!`${e.txnId} ${e.purpose} ${e.member} ${e.amount} ${e.category}`.toLowerCase().includes(q)) return false;
+      if(!`${e.txnId} ${e.purpose} ${e.member} ${e.amount} ${(e.category||catByCode(e.categoryCode)?.label||e.categoryCode||"Unknown")}`.toLowerCase().includes(q)) return false;
     }
     return true;
   }).sort((a,b)=>new Date(b.date)-new Date(a.date));
@@ -2264,7 +2264,12 @@ export default function App() {
       const r=await fetch(u,{redirect:"follow"});
       const d=await r.json();
       if(d.success){
-        setEntries(d.entries||[]);
+        // Backfill category label from categoryCode for entries loaded from Sheets
+        // Apps Script sends categoryCode but not the display label — resolve it here
+        setEntries((d.entries||[]).map(e=>({
+          ...e,
+          category: e.category || catByCode(e.categoryCode)?.label || e.categoryCode || "Unknown"
+        })));
         setEvents(d.events||[]);
         setCounters(d.counters||{});
         if(d.members&&d.members.length>0)setMembers(d.members);
@@ -2446,7 +2451,7 @@ export default function App() {
     if(fMember!=="all"&&e.member!==fMember)return false;
     if(searchQ.trim()){
       const q=searchQ.trim().toLowerCase();
-      const haystack=`${e.txnId} ${e.purpose} ${e.member} ${e.amount} ${e.upiId||""} ${e.notes||""} ${e.category}`.toLowerCase();
+      const haystack=`${e.txnId} ${e.purpose} ${e.member} ${e.amount} ${e.upiId||""} ${e.notes||""} ${(e.category||catByCode(e.categoryCode)?.label||e.categoryCode||"Unknown")}`.toLowerCase();
       if(!haystack.includes(q))return false;
     }
     return true;
@@ -2589,14 +2594,14 @@ export default function App() {
 
   const exportCSV=()=>{
     const H=["Txn ID","Date","Member","Category","Amount","Purpose","UPI ID","Status","Notes","Event","Sub-Category"];
-    const R=filtered.map(e=>[e.txnId,e.date,e.member,e.category,e.amount,`"${e.purpose}"`,e.upiId,e.status,`"${e.notes||""}"`,events.find(ev=>ev.id===e.eventId)?.name||"",e.subCategory||""]);
+    const R=filtered.map(e=>[e.txnId,e.date,e.member,(e.category||catByCode(e.categoryCode)?.label||e.categoryCode||"Unknown"),e.amount,`"${e.purpose}"`,e.upiId,e.status,`"${e.notes||""}"`,events.find(ev=>ev.id===e.eventId)?.name||"",e.subCategory||""]);
     const csv=[H,...R].map(r=>r.join(",")).join("\n");
     const a=Object.assign(document.createElement("a"),{href:URL.createObjectURL(new Blob([csv],{type:"text/csv"})),download:`nandanam-${todayStr()}.csv`});
     a.click();
   };
 
   const generatePDF=()=>{
-    const catBreakdown=Object.entries(filtered.reduce((a,e)=>{a[e.category]=(a[e.category]||0)+e.amount;return a;},{})).sort((a,b)=>b[1]-a[1]);
+    const catBreakdown=Object.entries(filtered.reduce((a,e)=>{const _cl=(e.category||catByCode(e.categoryCode)?.label||e.categoryCode||"Unknown");a[_cl]=(a[_cl]||0)+e.amount;return a;},{})).sort((a,b)=>b[1]-a[1]);
     const memberBreakdown=Object.entries(filtered.reduce((a,e)=>{a[e.member]=(a[e.member]||0)+e.amount;return a;},{})).sort((a,b)=>b[1]-a[1]);
     const filterDesc=[
       fYear!=="all"?`Year: ${fYear}`:"",
@@ -2613,7 +2618,7 @@ export default function App() {
         <td><span class="txn-id">${e.txnId}</span>${ev?`<br/><span style="color:#7c3aed;font-size:10px;font-weight:600">🎉 ${ev.name}</span>`:""}${e.subCategory?`<br/><span style="color:#6b7280;font-size:10px">${e.subCategory}</span>`:""}</td>
         <td style="font-weight:500;white-space:nowrap">${new Date(e.date).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"})}</td>
         <td style="font-weight:700;color:#111827">${e.member}</td>
-        <td><span class="cat-pill">${e.category}</span></td>
+        <td><span class="cat-pill">${(e.category||catByCode(e.categoryCode)?.label||e.categoryCode||"Unknown")}</span></td>
         <td style="max-width:180px;color:#374151">${e.purpose}${e.notes?`<br/><span style="color:#9ca3af;font-size:11px">${e.notes}</span>`:""}</td>
         <td class="amt-cell">₹${Number(e.amount).toLocaleString("en-IN")}</td>
         <td style="text-align:center"><span class="status-pill ${statusClass}">${e.status}</span></td>
@@ -3844,7 +3849,7 @@ export default function App() {
             {/* Breakdowns */}
             <div style={{marginTop:20,display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
               {[
-                {title:"By Category",items:Object.entries(filtered.reduce((a,e)=>{a[e.category]=(a[e.category]||0)+e.amount;return a;},{})).sort((a,b)=>b[1]-a[1])},
+                {title:"By Category",items:Object.entries(filtered.reduce((a,e)=>{const _cl=(e.category||catByCode(e.categoryCode)?.label||e.categoryCode||"Unknown");a[_cl]=(a[_cl]||0)+e.amount;return a;},{})).sort((a,b)=>b[1]-a[1])},
                 {title:"By Member",  items:Object.entries(filtered.reduce((a,e)=>{a[e.member]=(a[e.member]||0)+e.amount;return a;},{})).sort((a,b)=>b[1]-a[1]).slice(0,7)},
               ].map(({title,items})=>(
                 <div key={title} style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:16,padding:18}}>
