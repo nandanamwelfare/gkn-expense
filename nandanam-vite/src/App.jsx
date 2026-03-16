@@ -2619,21 +2619,26 @@ export default function App() {
       fMonth!=="all"?`Month: ${MONTHS[Number(fMonth)]}`:"",
       fStatus!=="all"?`Status: ${fStatus}`:"",
       fCat!=="all"?`Category: ${fCat}`:"",
-      fEvent!=="all"?`Event: ${events.find(e=>e.id===fEvent)?.name||fEvent}`:"",
+      fEvent!=="all"?("Event: "+(events.find(e=>e.id===fEvent)?.name||fEvent)):"",
     ].filter(Boolean).join("  ·  ")||"All Records";
 
     const rows=filtered.map(e=>{
       const ev=events.find(ev=>ev.id===e.eventId);
       const statusClass=e.status==="Reimbursed"?"reimbursed":"pending";
-      return `<tr>
-        <td><span class="txn-id">${e.txnId}</span>${ev?`<br/><span style="color:#7c3aed;font-size:10px;font-weight:600">🎉 ${ev.name}</span>`:""}${e.subCategory?`<br/><span style="color:#6b7280;font-size:10px">${e.subCategory}</span>`:""}</td>
-        <td style="font-weight:500;white-space:nowrap">${new Date(e.date).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"})}</td>
-        <td style="font-weight:700;color:#111827">${e.member}</td>
-        <td><span class="cat-pill">${(e.category||catByCode(e.categoryCode).label||e.categoryCode||"Unknown")}</span></td>
-        <td style="max-width:180px;color:#374151">${e.purpose}${e.notes?`<br/><span style="color:#9ca3af;font-size:11px">${e.notes}</span>`:""}</td>
-        <td class="amt-cell">₹${Number(e.amount).toLocaleString("en-IN")}</td>
-        <td style="text-align:center"><span class="status-pill ${statusClass}">${e.status}</span></td>
-      </tr>`;
+      const evTag   = ev ? ('<br/><span style="color:#7c3aed;font-size:10px;font-weight:600">🎉 '+ev.name+'</span>') : "";
+      const subTag  = e.subCategory ? ('<br/><span style="color:#6b7280;font-size:10px">'+e.subCategory+'</span>') : "";
+      const noteTag = e.notes ? ('<br/><span style="color:#9ca3af;font-size:11px">'+e.notes+'</span>') : "";
+      const catLabel= e.category||catByCode(e.categoryCode).label||e.categoryCode||"Unknown";
+      const dateStr = new Date(e.date).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"});
+      return "<tr>"
+        +"<td><span class=\"txn-id\">"+e.txnId+"</span>"+evTag+subTag+"</td>"
+        +"<td style=\"font-weight:500;white-space:nowrap\">"+dateStr+"</td>"
+        +"<td style=\"font-weight:700;color:#111827\">"+e.member+"</td>"
+        +"<td><span class=\"cat-pill\">"+catLabel+"</span></td>"
+        +"<td style=\"max-width:180px;color:#374151\">"+e.purpose+noteTag+"</td>"
+        +"<td class=\"amt-cell\">₹"+Number(e.amount).toLocaleString("en-IN")+"</td>"
+        +"<td style=\"text-align:center\"><span class=\"status-pill "+statusClass+"\">"+e.status+"</span></td>"
+        +"</tr>";
     }).join("");
 
     const catRows=catBreakdown.map(([name,amt])=>{
@@ -3520,7 +3525,7 @@ export default function App() {
                 <div style={{textAlign:"right"}}>
                   <div style={{fontSize:10,color:"rgba(255,255,255,0.3)"}}>vs {thisYear-1}: {fmt(lastYrTotal)}</div>
                   <div style={{fontSize:15,fontWeight:800,color:ytdDiff>0?"#f87171":ytdDiff<0?"#34d399":"#fbbf24",marginTop:2}}>
-                    {ytdDiff===0?"—":(ytdDiff>0?"↑ ":"↓ ")+fmt(Math.abs(ytdDiff))} {ytdDiff!==0&&lastYrTotal>0&&`(${ytdDiff>0?"+":""}${Math.round((ytdDiff/lastYrTotal)*100)}%)`}
+                    {ytdDiff===0?"—":(ytdDiff>0?"↑ ":"↓ ")+fmt(Math.abs(ytdDiff))}{ytdDiff!==0&&lastYrTotal>0&&(" ("+(ytdDiff>0?"+":"")+Math.round(ytdDiff/lastYrTotal*100)+"%)")}
                   </div>
                 </div>
               )}
@@ -3667,7 +3672,7 @@ export default function App() {
                         borderBottom:"1px solid rgba(255,255,255,0.04)",
                         transition:"background 0.15s",
                         background: isRecurring ? "rgba(139,92,246,0.04)" : "transparent",
-                        borderLeft: isRecurring ? `3px solid ${recurType?.color||"#a78bfa"}` : "3px solid transparent",
+                        borderLeft: isRecurring ? "3px solid "+(recurType&&recurType.color?recurType.color:"#a78bfa") : "3px solid transparent",
                       }}>
                         <td style={{padding:"12px 15px"}}>
                           <div onClick={copyTxn} title="Click to copy" style={{fontFamily:"monospace",fontSize:12,color:copied?"#10b981":"#fbbf24",fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
