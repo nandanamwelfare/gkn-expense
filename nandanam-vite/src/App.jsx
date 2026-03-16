@@ -1,7 +1,3 @@
-// Nandanam Expense Manager — v20.1
-// Gokul's Nandanam · Welfare & Expense Management
-// Built with React + Vite · Backend: Google Apps Script + Sheets
-
 import { useState, useEffect, useRef } from "react";
 
 // ── Responsive breakpoints ───────────────────────────────────────────
@@ -144,26 +140,6 @@ const detectRecurring = (purpose="",notes="") => {
 const todayStr  = () => new Date().toISOString().split("T")[0];
 const fmt       = (n) => `₹${Number(n||0).toLocaleString("en-IN")}`;
 const MONTHS    = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-/* ── Duplicate detection ─────────────────────────────────────────────────── */
-const checkSingleDup = (entries, form) => {
-  if (!form.amount || !form.date || !form.member) return null;
-  const amt   = Number(form.amount);
-  const formDt = new Date(form.date).getTime();
-  for (const e of entries) {
-    if (e.member !== form.member) continue;
-    if (Number(e.amount) !== amt)  continue;
-    const eDt  = new Date(e.date).getTime();
-    const days = Math.abs(formDt - eDt) / 86400000;
-    const sameVendor = form.upiId && e.upiId && e.upiId.toLowerCase().includes(form.upiId.toLowerCase().split("@")[0]);
-    if (days <= 0 && sameVendor && e.categoryCode === form.categoryCode)
-      return { level:"hard", txnId:e.txnId, msg:`Exact duplicate of ${e.txnId} on ${e.date}` };
-    if (days <= 3 && e.categoryCode === form.categoryCode)
-      return { level:"soft", txnId:e.txnId, msg:`Similar to ${e.txnId} — same amount within 3 days` };
-  }
-  return null;
-};
-
-
 const pad5      = (n) => String(n).padStart(5,"0");
 const genId     = () => `E${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2,5).toUpperCase()}`;
 const evTag    = (name) => name.replace(/[^a-zA-Z0-9]/g,"").toUpperCase().slice(0,8);
@@ -452,7 +428,7 @@ function BulkImportModal({members, events, entries: existingEntries, verifiedMem
     for (const e of (existingEntries||[])) {
       if (Number(e.amount) !== amt) continue;
       const eDt   = new Date(e.date).getTime();
-      const days  = Math.abs(rowDt - eDt) / 86400000;
+      const days  = Math.abs(rowDt - eDt) * (1 * 0.000011574074);
       const sameVendor = vendor && e.upiId && e.upiId.toLowerCase().includes(vendor.toLowerCase());
 
       if (days <= EXACT_DAYS && sameVendor && e.categoryCode === row.categoryCode)
@@ -470,7 +446,7 @@ function BulkImportModal({members, events, entries: existingEntries, verifiedMem
       if (!other.amount || !other.date) continue;
       if (Number(other.amount) !== amt) continue;
       const otherDt = new Date(other.date).getTime();
-      const days    = Math.abs(rowDt - otherDt) / 86400000;
+      const days    = Math.abs(rowDt - otherDt) * (1 * 0.000011574074);
       if (days <= EXACT_DAYS && other.categoryCode === row.categoryCode)
         return { level:"hard", msg:`Same as Row ${i+1} in this batch — possible duplicate!` };
       if (days <= SOFT_DAYS && other.categoryCode === row.categoryCode)
@@ -1051,9 +1027,6 @@ function BulkImportModal({members, events, entries: existingEntries, verifiedMem
 
 
 
-/* ═══════════════════════════════════════════════════════════
-   MEMBER PIN MODAL
-═══════════════════════════════════════════════════════════ */
 const MAX_PIN_ATTEMPTS = 5;
 
 function MemberPinModal({members, memberPins, onSuccess, onSavePin, onClose}) {
@@ -1280,118 +1253,61 @@ function MemberPinModal({members, memberPins, onSuccess, onSavePin, onClose}) {
    PIN LOCK MODAL
 ═══════════════════════════════════════════════════════════ */
 function PinModal({onSuccess,onClose}) {
-  const [digits,   setDigits]   = useState(["","","","",""]);
-  const [error,    setError]    = useState("");
-  const [checking, setChecking] = useState(false);
-  const [attempts, setAttempts] = useState(0);
-  const [lockedOut,setLockedOut]= useState(false);
+  const [digits,setDigits] = useState(["","","","",""]);
+  const [error,setError]   = useState("");
+  const [checking,setChecking] = useState(false);
   const refs = [useRef(),useRef(),useRef(),useRef(),useRef()];
 
   const handleKey=(i,val)=>{
-    if(lockedOut||checking)return;
     if(!/^\d?$/.test(val))return;
     const next=[...digits]; next[i]=val; setDigits(next); setError("");
     if(val&&i<4)refs[i+1].current?.focus();
-    if(i===4&&val){const pin=next.join(""); if(pin.length===5)submit(pin);}
+    if(i===4&&val){
+      const pin=next.join("");
+      if(pin.length===5)submit(pin,next);
+    }
   };
   const handleKeyDown=(i,e)=>{
-    if(lockedOut||checking)return;
-    if(e.key==="Backspace"&&!digits[i]&&i>0)refs[i-1].current?.focus();
-    if(e.key==="Enter"){const pin=digits.join(""); if(pin.length===5)submit(pin);}
+    if(e.key==="Backspace"&&!digits[i]&&i>0){refs[i-1].current?.focus();}
+    if(e.key==="Enter"){const pin=digits.join(""); if(pin.length===5)submit(pin,digits);}
   };
-
   const submit=async(pin)=>{
-    if(lockedOut)return;
     setChecking(true);
-    await new Promise(r=>setTimeout(r,400));
-    // onSuccess passes the pin up to App which validates against treasurerPin
-    // If wrong, App calls back via showToast — but we also need local failure tracking.
-    // We wrap onSuccess and handle the lockout here via the returned result.
-    onSuccess(pin, (success)=>{
-      if(!success){
-        const newAttempts = attempts + 1;
-        setAttempts(newAttempts);
-        setDigits(["","","","",""]);
-        if(newAttempts >= MAX_PIN_ATTEMPTS){
-          setLockedOut(true);
-          setError(`Locked after ${MAX_PIN_ATTEMPTS} failed attempts. Close and try again later or contact your system admin.`);
-        } else {
-          const remaining = MAX_PIN_ATTEMPTS - newAttempts;
-          setError(`Wrong PIN — ${remaining} attempt${remaining===1?"":"s"} left.`);
-          setTimeout(()=>refs[0].current?.focus(),50);
-        }
-      }
-    });
+    await new Promise(r=>setTimeout(r,400)); // small pause feels intentional
+    onSuccess(pin);
     setChecking(false);
   };
 
-  const isReady = !lockedOut && !checking && digits.join("").length===5;
-
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:1200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-      <div style={{background:"linear-gradient(135deg,#0a1628,#0f2040)",border:`1px solid ${lockedOut?"rgba(239,68,68,0.5)":"rgba(251,191,36,0.3)"}`,borderRadius:24,padding:"40px 36px",width:"100%",maxWidth:380,boxShadow:"0 24px 80px rgba(0,0,0,0.7)",textAlign:"center"}}>
-        <div style={{width:60,height:60,borderRadius:"50%",background:lockedOut?"rgba(239,68,68,0.12)":"rgba(251,191,36,0.1)",border:`2px solid ${lockedOut?"rgba(239,68,68,0.4)":"rgba(251,191,36,0.3)"}`,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 20px",fontSize:26}}>
-          {lockedOut?"🔒":"🔐"}
+      <div style={{background:"linear-gradient(135deg,#0a1628,#0f2040)",border:"1px solid rgba(251,191,36,0.3)",borderRadius:24,padding:"40px 36px",width:"100%",maxWidth:380,boxShadow:"0 24px 80px rgba(0,0,0,0.7)",textAlign:"center"}}>
+        <div style={{width:60,height:60,borderRadius:"50%",background:"rgba(251,191,36,0.1)",border:"2px solid rgba(251,191,36,0.3)",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 20px",fontSize:26}}>🔐</div>
+        <h3 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:24,color:"#fbbf24",margin:"0 0 6px"}}>Treasurer Access</h3>
+        <p style={{color:"rgba(255,255,255,0.35)",fontSize:13,margin:"0 0 28px"}}>Enter your 5-digit secret PIN</p>
+
+        <div style={{display:"flex",gap:10,justifyContent:"center",marginBottom:20}}>
+          {digits.map((d,i)=>(
+            <input
+              key={i} ref={refs[i]}
+              type="password" inputMode="numeric" maxLength={1}
+              value={d}
+              onChange={e=>handleKey(i,e.target.value)}
+              onKeyDown={e=>handleKeyDown(i,e)}
+              style={{width:48,height:56,textAlign:"center",fontSize:22,fontWeight:800,background:"rgba(255,255,255,0.07)",border:`2px solid ${error?"rgba(239,68,68,0.6)":d?"rgba(251,191,36,0.6)":"rgba(255,255,255,0.15)"}`,borderRadius:12,color:"#fff",outline:"none",fontFamily:"'DM Sans',sans-serif",transition:"border-color 0.2s"}}
+            />
+          ))}
         </div>
-        <h3 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:24,color:lockedOut?"#ef4444":"#fbbf24",margin:"0 0 6px"}}>
-          {lockedOut?"Access Locked":"Treasurer Access"}
-        </h3>
-        <p style={{color:"rgba(255,255,255,0.35)",fontSize:13,margin:"0 0 28px"}}>
-          {lockedOut?"Too many failed attempts.":"Enter your 5-digit secret PIN"}
-        </p>
 
-        {!lockedOut&&(
-          <>
-            <div style={{display:"flex",gap:10,justifyContent:"center",marginBottom:8}}>
-              {digits.map((d,i)=>(
-                <input key={i} ref={refs[i]}
-                  type="password" inputMode="numeric" maxLength={1}
-                  value={d}
-                  onChange={e=>handleKey(i,e.target.value)}
-                  onKeyDown={e=>handleKeyDown(i,e)}
-                  style={{width:48,height:56,textAlign:"center",fontSize:22,fontWeight:800,
-                    background:"rgba(255,255,255,0.07)",
-                    border:`2px solid ${error?"rgba(239,68,68,0.6)":d?"rgba(251,191,36,0.6)":"rgba(255,255,255,0.15)"}`,
-                    borderRadius:12,color:"#fff",outline:"none",
-                    fontFamily:"'DM Sans',sans-serif",transition:"border-color 0.2s"}}
-                />
-              ))}
-            </div>
-            {attempts>0&&(
-              <div style={{display:"flex",gap:5,justifyContent:"center",marginBottom:16}}>
-                {Array.from({length:MAX_PIN_ATTEMPTS}).map((_,i)=>(
-                  <div key={i} style={{width:8,height:8,borderRadius:"50%",
-                    background:i<attempts?"#ef4444":"rgba(255,255,255,0.15)",
-                    transition:"background 0.2s"}}/>
-                ))}
-              </div>
-            )}
-          </>
-        )}
+        {error&&<div style={{color:"#ef4444",fontSize:13,marginBottom:14,fontWeight:600}}>{error}</div>}
 
-        {error&&(
-          <div style={{color:"#ef4444",fontSize:13,marginBottom:14,fontWeight:600,lineHeight:1.5}}>
-            {lockedOut?"🔒 ":"⚠ "}{error}
-          </div>
-        )}
-
-        {!lockedOut&&(
-          <button
-            onClick={()=>{const pin=digits.join(""); if(pin.length===5)submit(pin); else setError("Enter all 5 digits");}}
-            disabled={!isReady}
-            style={{width:"100%",background:isReady?"linear-gradient(135deg,#f59e0b,#fbbf24)":"rgba(255,255,255,0.07)",
-              color:isReady?"#1a1a00":"rgba(255,255,255,0.3)",border:"none",borderRadius:12,
-              padding:"13px",fontWeight:800,fontSize:15,
-              cursor:isReady?"pointer":"default",fontFamily:"'DM Sans',sans-serif",
-              display:"flex",alignItems:"center",justifyContent:"center",gap:8,
-              transition:"all 0.2s",marginBottom:12}}
-          >
-            {checking?<><div style={{width:16,height:16,border:"2px solid rgba(0,0,0,0.2)",borderTopColor:"#1a1a00",borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/> Verifying...</>:"Unlock Dashboard"}
-          </button>
-        )}
-        <button onClick={onClose} style={{background:"none",border:"none",color:"rgba(255,255,255,0.3)",cursor:"pointer",fontSize:13,fontFamily:"'DM Sans',sans-serif"}}>
-          {lockedOut?"Close":"Cancel"}
+        <button
+          onClick={()=>{const pin=digits.join(""); if(pin.length===5)submit(pin); else setError("Enter all 5 digits");}}
+          disabled={checking||digits.join("").length<5}
+          style={{width:"100%",background:digits.join("").length===5?"linear-gradient(135deg,#f59e0b,#fbbf24)":"rgba(255,255,255,0.07)",color:digits.join("").length===5?"#1a1a00":"rgba(255,255,255,0.3)",border:"none",borderRadius:12,padding:"13px",fontWeight:800,fontSize:15,cursor:digits.join("").length===5?"pointer":"default",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8,transition:"all 0.2s",marginBottom:12}}
+        >
+          {checking?<><div style={{width:16,height:16,border:"2px solid rgba(0,0,0,0.2)",borderTopColor:"#1a1a00",borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/> Verifying...</>:"Unlock Dashboard"}
         </button>
+        <button onClick={onClose} style={{background:"none",border:"none",color:"rgba(255,255,255,0.3)",cursor:"pointer",fontSize:13,fontFamily:"'DM Sans',sans-serif"}}>Cancel</button>
       </div>
     </div>
   );
@@ -1400,28 +1316,17 @@ function PinModal({onSuccess,onClose}) {
 /* ═══════════════════════════════════════════════════════════
    MEMBER MANAGEMENT PANEL
 ═══════════════════════════════════════════════════════════ */
-function MemberPanel({members, memberPins, onAdd, onRemove, onResetPin, onClose}) {
-  const [newName,   setNewName]   = useState("");
-  const [removing,  setRemoving]  = useState(null);
-  const [resetting, setResetting] = useState(null);  // member name being reset
-  const [resetDone, setResetDone] = useState(null);  // member name just reset
+function MemberPanel({members,onAdd,onRemove,onClose}) {
+  const [newName,setNewName] = useState("");
+  const [removing,setRemoving] = useState(null);
   const INP={width:"100%",padding:"10px 14px",borderRadius:10,border:"1.5px solid rgba(255,255,255,0.12)",background:"rgba(255,255,255,0.06)",color:"#fff",fontSize:14,fontFamily:"'DM Sans',sans-serif",outline:"none",boxSizing:"border-box"};
-
-  const handleResetPin = async (name) => {
-    setResetting(name);
-    await onResetPin(name);
-    setResetting(null);
-    setResetDone(name);
-    setTimeout(()=>setResetDone(null), 3000);
-  };
-
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.80)",zIndex:1100,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-      <div style={{background:"#0a1628",border:"1px solid rgba(16,185,129,0.3)",borderRadius:22,padding:32,width:"100%",maxWidth:520,boxShadow:"0 24px 80px rgba(0,0,0,0.7)",maxHeight:"85vh",display:"flex",flexDirection:"column",position:"relative"}}>
+      <div style={{background:"#0a1628",border:"1px solid rgba(16,185,129,0.3)",borderRadius:22,padding:32,width:"100%",maxWidth:480,boxShadow:"0 24px 80px rgba(0,0,0,0.7)",maxHeight:"85vh",display:"flex",flexDirection:"column"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:22,flexShrink:0}}>
           <div>
             <h3 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,color:"#10b981",margin:0}}>👥 Member Management</h3>
-            <p style={{color:"rgba(255,255,255,0.35)",fontSize:12,margin:"4px 0 0"}}>{members.length} active members · Reset PIN clears it so member sets a new one on next login</p>
+            <p style={{color:"rgba(255,255,255,0.35)",fontSize:12,margin:"4px 0 0"}}>{members.length} active members</p>
           </div>
           <button onClick={onClose} style={{background:"none",border:"none",color:"rgba(255,255,255,0.4)",cursor:"pointer"}}><Icon n="x" s={18}/></button>
         </div>
@@ -1430,12 +1335,16 @@ function MemberPanel({members, memberPins, onAdd, onRemove, onResetPin, onClose}
         <div style={{background:"rgba(16,185,129,0.07)",border:"1px solid rgba(16,185,129,0.2)",borderRadius:12,padding:16,marginBottom:20,flexShrink:0}}>
           <div style={{fontSize:11,fontWeight:700,color:"rgba(16,185,129,0.8)",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>Add New Member</div>
           <div style={{display:"flex",gap:8}}>
-            <input value={newName} onChange={e=>setNewName(e.target.value)}
+            <input
+              value={newName} onChange={e=>setNewName(e.target.value)}
               onKeyDown={e=>{if(e.key==="Enter"&&newName.trim()){onAdd(newName.trim());setNewName("");}}}
-              placeholder="Full name (e.g. Rajesh Kumar)" style={{...INP,flex:1,padding:"9px 13px",fontSize:13}}/>
-            <button onClick={()=>{if(newName.trim()){onAdd(newName.trim());setNewName("");}}}
+              placeholder="Full name (e.g. Rajesh Kumar)" style={{...INP,flex:1,padding:"9px 13px",fontSize:13}}
+            />
+            <button
+              onClick={()=>{if(newName.trim()){onAdd(newName.trim());setNewName("");}}}
               disabled={!newName.trim()}
-              style={{background:newName.trim()?"linear-gradient(135deg,#059669,#10b981)":"rgba(255,255,255,0.06)",color:newName.trim()?"#fff":"rgba(255,255,255,0.3)",border:"none",borderRadius:10,padding:"9px 18px",cursor:newName.trim()?"pointer":"default",fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}>
+              style={{background:newName.trim()?"linear-gradient(135deg,#059669,#10b981)":"rgba(255,255,255,0.06)",color:newName.trim()?"#fff":"rgba(255,255,255,0.3)",border:"none",borderRadius:10,padding:"9px 18px",cursor:newName.trim()?"pointer":"default",fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}
+            >
               <Icon n="plus" s={14}/>Add
             </button>
           </div>
@@ -1445,51 +1354,23 @@ function MemberPanel({members, memberPins, onAdd, onRemove, onResetPin, onClose}
         <div style={{overflowY:"auto",flex:1}}>
           {members.length===0?(
             <div style={{textAlign:"center",padding:"40px 20px",color:"rgba(255,255,255,0.2)"}}>No members yet. Add one above.</div>
-          ):members.map((m,i)=>{
-            const hasPin   = !!(memberPins&&memberPins[m]);
-            const isReset  = resetting===m;
-            const justDone = resetDone===m;
-            return (
-              <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 4px",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
-                {/* Avatar */}
-                <div style={{width:36,height:36,borderRadius:"50%",background:"linear-gradient(135deg,#1d4ed8,#3b82f6)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800,flexShrink:0}}>
-                  {m.split(" ").map(w=>w[0]).slice(0,2).join("")}
-                </div>
-                {/* Name */}
-                <span style={{flex:1,fontSize:14,color:"rgba(255,255,255,0.85)",fontWeight:500}}>{m}</span>
-                {/* PIN status badge */}
-                <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:10,
-                  background:hasPin?"rgba(16,185,129,0.12)":"rgba(245,158,11,0.1)",
-                  color:hasPin?"#10b981":"#f59e0b",
-                  border:`1px solid ${hasPin?"rgba(16,185,129,0.3)":"rgba(245,158,11,0.3)"}`,
-                  whiteSpace:"nowrap"}}>
-                  {hasPin?"🔐 PIN set":"⚠ No PIN"}
-                </span>
-                {/* Reset PIN button */}
-                {hasPin&&(
-                  <button onClick={()=>handleResetPin(m)} disabled={isReset}
-                    style={{background:justDone?"rgba(16,185,129,0.15)":"rgba(245,158,11,0.08)",
-                      border:`1px solid ${justDone?"rgba(16,185,129,0.35)":"rgba(245,158,11,0.25)"}`,
-                      color:justDone?"#10b981":"#f59e0b",borderRadius:8,
-                      padding:"5px 10px",cursor:isReset?"default":"pointer",
-                      fontSize:11,fontFamily:"'DM Sans',sans-serif",fontWeight:700,
-                      whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,
-                      opacity:isReset?0.6:1}}>
-                    {isReset?<><div style={{width:10,height:10,border:"1.5px solid rgba(245,158,11,0.3)",borderTopColor:"#f59e0b",borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/>...</>
-                      :justDone?"✓ Reset":"🔑 Reset PIN"}
-                  </button>
-                )}
-                {/* Remove button */}
-                <button onClick={()=>setRemoving(m)}
-                  style={{background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.2)",color:"#ef4444",borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:12,fontFamily:"'DM Sans',sans-serif",fontWeight:600,display:"flex",alignItems:"center",gap:4}}>
-                  <Icon n="x" s={12}/>Remove
-                </button>
+          ):members.map((m,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 4px",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
+              <div style={{width:36,height:36,borderRadius:"50%",background:"linear-gradient(135deg,#1d4ed8,#3b82f6)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800,flexShrink:0}}>
+                {m.split(" ").map(w=>w[0]).slice(0,2).join("")}
               </div>
-            );
-          })}
+              <span style={{flex:1,fontSize:14,color:"rgba(255,255,255,0.85)",fontWeight:500}}>{m}</span>
+              <button
+                onClick={()=>setRemoving(m)}
+                style={{background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.2)",color:"#ef4444",borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:12,fontFamily:"'DM Sans',sans-serif",fontWeight:600,display:"flex",alignItems:"center",gap:4}}
+              >
+                <Icon n="x" s={12}/>Remove
+              </button>
+            </div>
+          ))}
         </div>
 
-        {/* Confirm remove overlay */}
+        {/* Confirm remove */}
         {removing&&(
           <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.7)",borderRadius:22,display:"flex",alignItems:"center",justifyContent:"center",padding:30}}>
             <div style={{background:"#0f2040",border:"1px solid rgba(239,68,68,0.4)",borderRadius:16,padding:28,textAlign:"center",maxWidth:300}}>
@@ -1580,6 +1461,100 @@ function VendorPanel({vendors,onAdd,onRemove,onClose}) {
               </div>
             </div>
           </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   EVENT CARD — extracted to isolate division ops from esbuild JSX scanner
+═══════════════════════════════════════════════════════════ */
+function EventCard({ev, evSpend, entries, isTreasurer, fmt, onViewTxns, onDelete, onToggle}) {
+  var spent      = evSpend(ev.id);
+  var budget     = ev.budget || 0;
+  var ratio      = budget > 0 ? spent / budget : 0;
+  var budgetPct  = Math.min(100, Math.round(ratio * 100));
+  var over       = spent > budget;
+  var evEntries  = entries.filter(function(e){ return e.eventId === ev.id; });
+  var pending    = evEntries.filter(function(e){ return e.status === "Pending"; })
+                            .reduce(function(s,e){ return s + e.amount; }, 0);
+  var remaining  = Math.max(0, budget - spent);
+  var barColor   = over ? "linear-gradient(90deg,#ef4444,#dc2626)" : "linear-gradient(90deg,#d946ef,#a855f7)";
+  var cardBorder = over ? "rgba(239,68,68,0.4)" : "rgba(217,70,239,0.25)";
+  var boxShadow  = over ? "0 8px 30px rgba(239,68,68,0.12)" : "0 8px 30px rgba(217,70,239,0.08)";
+
+  // Sub-category breakdown
+  var subCatMap = {};
+  evEntries.forEach(function(e){
+    var k = e.subCategory || "Other";
+    subCatMap[k] = (subCatMap[k] || 0) + e.amount;
+  });
+  var subCats = Object.entries(subCatMap);
+
+  return (
+    <div style={{background:"linear-gradient(135deg,#071428,#0c1e38)",border:"1px solid "+cardBorder,borderRadius:18,padding:22,boxShadow:boxShadow}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
+        <div>
+          <div style={{fontSize:17,fontFamily:"'Cormorant Garamond',serif",fontWeight:700,color:"#fff"}}>{ev.name}</div>
+          <div style={{fontSize:11,color:"rgba(255,255,255,0.35)",marginTop:3}}>
+            Tag: <span style={{color:"#d946ef",fontFamily:"monospace",fontWeight:700}}>{ev.tag}</span> · {ev.year}
+          </div>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:5}}>
+          <Badge status={ev.status} onClick={onToggle}/>
+          {over && <span style={{fontSize:10,color:"#ef4444",fontWeight:700}}>⚠ OVER BUDGET</span>}
+          {!over && budgetPct>=80 && <span style={{fontSize:10,color:"#f59e0b",fontWeight:700}}>⚠ 80% USED</span>}
+        </div>
+      </div>
+      <div style={{marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:5}}>
+          <span style={{color:"rgba(255,255,255,0.4)"}}>Budget utilization</span>
+          <span style={{color:over?"#ef4444":"#d946ef",fontWeight:700}}>{budgetPct}%</span>
+        </div>
+        <div style={{height:7,background:"rgba(255,255,255,0.07)",borderRadius:4}}>
+          <div style={{height:"100%",background:barColor,borderRadius:4,width:budgetPct+"%",transition:"width 0.5s ease"}}/>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginTop:5}}>
+          <span style={{color:"rgba(255,255,255,0.35)"}}>Spent: <strong style={{color:"#fff"}}>{fmt(spent)}</strong></span>
+          <span style={{color:"rgba(255,255,255,0.35)"}}>Budget: <strong style={{color:"#d946ef"}}>{fmt(budget)}</strong></span>
+        </div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7,marginBottom:14}}>
+        {[
+          {l:"Entries",   v:evEntries.length, c:null},
+          {l:"Pending",   v:fmt(pending),     c:"#f59e0b"},
+          {l:"Remaining", v:fmt(remaining),   c:"#10b981"},
+        ].map(function(item){
+          return (
+            <div key={item.l} style={{background:"rgba(255,255,255,0.04)",borderRadius:9,padding:"9px 10px",textAlign:"center"}}>
+              <div style={{fontSize:14,fontWeight:800,color:item.c||"#fff"}}>{item.v}</div>
+              <div style={{fontSize:10,color:"rgba(255,255,255,0.3)",marginTop:2}}>{item.l}</div>
+            </div>
+          );
+        })}
+      </div>
+      {subCats.length>0 && (
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:10,color:"rgba(255,255,255,0.3)",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:7}}>Sub-category breakdown</div>
+          {subCats.map(function(pair){
+            return (
+              <div key={pair[0]} style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"rgba(255,255,255,0.5)",marginBottom:4}}>
+                <span>{pair[0]}</span>
+                <span style={{color:"#d946ef",fontWeight:700}}>{fmt(pair[1])}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={onViewTxns} style={{flex:1,background:"rgba(217,70,239,0.08)",border:"1px solid rgba(217,70,239,0.22)",color:"#d946ef",borderRadius:10,padding:"9px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+          <Icon n="eye" s={13}/>View Transactions
+        </button>
+        {isTreasurer && (
+          <button onClick={onDelete} title="Delete event" style={{flexShrink:0,background:"rgba(239,68,68,0.07)",border:"1px solid rgba(239,68,68,0.25)",color:"#ef4444",borderRadius:10,padding:"9px 13px",fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <Icon n="trash" s={14}/>
+          </button>
         )}
       </div>
     </div>
@@ -1835,10 +1810,105 @@ function TxnsView({entries, events, verifiedMember, isTreasurer, isTreasurerMemb
 }
 
 /* ═══════════════════════════════════════════════════════════
+   EVENT CARD — extracted to isolate division ops from esbuild JSX scanner
+═══════════════════════════════════════════════════════════ */
+function EventCard({ev, evSpend, entries, isTreasurer, fmt, onViewTxns, onDelete, onToggle}) {
+  var spent      = evSpend(ev.id);
+  var budget     = ev.budget || 0;
+  var ratio      = budget > 0 ? spent / budget : 0;
+  var budgetPct  = Math.min(100, Math.round(ratio * 100));
+  var over       = spent > budget;
+  var evEntries  = entries.filter(function(e){ return e.eventId === ev.id; });
+  var pending    = evEntries.filter(function(e){ return e.status === "Pending"; })
+                            .reduce(function(s,e){ return s + e.amount; }, 0);
+  var remaining  = Math.max(0, budget - spent);
+  var barColor   = over ? "linear-gradient(90deg,#ef4444,#dc2626)" : "linear-gradient(90deg,#d946ef,#a855f7)";
+  var cardBorder = over ? "rgba(239,68,68,0.4)" : "rgba(217,70,239,0.25)";
+  var boxShadow  = over ? "0 8px 30px rgba(239,68,68,0.12)" : "0 8px 30px rgba(217,70,239,0.08)";
+
+  // Sub-category breakdown
+  var subCatMap = {};
+  evEntries.forEach(function(e){
+    var k = e.subCategory || "Other";
+    subCatMap[k] = (subCatMap[k] || 0) + e.amount;
+  });
+  var subCats = Object.entries(subCatMap);
+
+  return (
+    <div style={{background:"linear-gradient(135deg,#071428,#0c1e38)",border:"1px solid "+cardBorder,borderRadius:18,padding:22,boxShadow:boxShadow}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
+        <div>
+          <div style={{fontSize:17,fontFamily:"'Cormorant Garamond',serif",fontWeight:700,color:"#fff"}}>{ev.name}</div>
+          <div style={{fontSize:11,color:"rgba(255,255,255,0.35)",marginTop:3}}>
+            Tag: <span style={{color:"#d946ef",fontFamily:"monospace",fontWeight:700}}>{ev.tag}</span> · {ev.year}
+          </div>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:5}}>
+          <Badge status={ev.status} onClick={onToggle}/>
+          {over && <span style={{fontSize:10,color:"#ef4444",fontWeight:700}}>⚠ OVER BUDGET</span>}
+          {!over && budgetPct>=80 && <span style={{fontSize:10,color:"#f59e0b",fontWeight:700}}>⚠ 80% USED</span>}
+        </div>
+      </div>
+      <div style={{marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:5}}>
+          <span style={{color:"rgba(255,255,255,0.4)"}}>Budget utilization</span>
+          <span style={{color:over?"#ef4444":"#d946ef",fontWeight:700}}>{budgetPct}%</span>
+        </div>
+        <div style={{height:7,background:"rgba(255,255,255,0.07)",borderRadius:4}}>
+          <div style={{height:"100%",background:barColor,borderRadius:4,width:budgetPct+"%",transition:"width 0.5s ease"}}/>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginTop:5}}>
+          <span style={{color:"rgba(255,255,255,0.35)"}}>Spent: <strong style={{color:"#fff"}}>{fmt(spent)}</strong></span>
+          <span style={{color:"rgba(255,255,255,0.35)"}}>Budget: <strong style={{color:"#d946ef"}}>{fmt(budget)}</strong></span>
+        </div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7,marginBottom:14}}>
+        {[
+          {l:"Entries",   v:evEntries.length, c:null},
+          {l:"Pending",   v:fmt(pending),     c:"#f59e0b"},
+          {l:"Remaining", v:fmt(remaining),   c:"#10b981"},
+        ].map(function(item){
+          return (
+            <div key={item.l} style={{background:"rgba(255,255,255,0.04)",borderRadius:9,padding:"9px 10px",textAlign:"center"}}>
+              <div style={{fontSize:14,fontWeight:800,color:item.c||"#fff"}}>{item.v}</div>
+              <div style={{fontSize:10,color:"rgba(255,255,255,0.3)",marginTop:2}}>{item.l}</div>
+            </div>
+          );
+        })}
+      </div>
+      {subCats.length>0 && (
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:10,color:"rgba(255,255,255,0.3)",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:7}}>Sub-category breakdown</div>
+          {subCats.map(function(pair){
+            return (
+              <div key={pair[0]} style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"rgba(255,255,255,0.5)",marginBottom:4}}>
+                <span>{pair[0]}</span>
+                <span style={{color:"#d946ef",fontWeight:700}}>{fmt(pair[1])}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={onViewTxns} style={{flex:1,background:"rgba(217,70,239,0.08)",border:"1px solid rgba(217,70,239,0.22)",color:"#d946ef",borderRadius:10,padding:"9px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+          <Icon n="eye" s={13}/>View Transactions
+        </button>
+        {isTreasurer && (
+          <button onClick={onDelete} title="Delete event" style={{flexShrink:0,background:"rgba(239,68,68,0.07)",border:"1px solid rgba(239,68,68,0.25)",color:"#ef4444",borderRadius:10,padding:"9px 13px",fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <Icon n="trash" s={14}/>
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
    BREAKDOWN PANEL — Category + Member totals
    Extracted as component to avoid esbuild regex misparse
 ═══════════════════════════════════════════════════════════ */
 function BreakdownPanel({catItems, memberItems, totalAmt, fmt}) {
+  var invTotal = totalAmt > 0 ? 100 / totalAmt : 0;
   const panels = [
     {title:"By Category", items:catItems},
     {title:"By Member",   items:memberItems},
@@ -1854,7 +1924,7 @@ function BreakdownPanel({catItems, memberItems, totalAmt, fmt}) {
               var amt  = row[1];
               var cat  = CATEGORIES.find(function(c){return c.label===name;});
               var icon = cat ? cat.icon : "👤";
-              var pct  = totalAmt > 0 ? Math.round(amt * 100 / totalAmt) : 0;
+              var pct = Math.round(amt * invTotal);
               var barW = pct + "%";
               return (
                 <div key={name} style={{display:"flex",alignItems:"center",gap:9,marginBottom:11}}>
@@ -1923,7 +1993,7 @@ function MemberBalanceSheet({entries, members, treasurerMembers=[], onBatchReimb
         </p>
       </div>
 
-      <div className="balance-grid" style={{display:"grid",gridTemplateColumns:selectedMember?"minmax(200px,320px) 1fr":"1fr",gap:20,alignItems:"start"}}>
+      <div style={{display:"grid",gridTemplateColumns:selectedMember?"320px 1fr":"1fr",gap:20,alignItems:"start"}}>
 
         {/* Member list */}
         <div style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:16,overflow:"hidden"}}>
@@ -2160,7 +2230,7 @@ function EditEntryModal({entry,members,events,categories,onSave,onClose}) {
             </div>
             <div>
               <label style={LBL}>Category</label>
-              <select value={form.categoryCode} onChange={e=>{const c=categories.find(x=>x.code===e.target.value);setForm(f=>({...f,categoryCode:e.target.value,category:c?.label||""}));}} style={INP}>
+              <select value={form.categoryCode} onChange={e=>{const c=categories.find(x=>x.code===e.target.value);setForm(f=>({...f,categoryCode:e.target.value,category:(c&&c.label)||""}));}} style={INP}>
                 {categories.map(c=><option key={c.code} value={c.code}>{c.icon} {c.label}</option>)}
               </select>
             </div>
@@ -2224,8 +2294,11 @@ export default function App() {
   // Member PIN auth
   const [memberPins,setMemberPins]     = useState({}); // {name: pin} loaded from Sheets
   const [treasurerMembers,setTreasurerMembers] = useState([]); // names with role=Treasurer in Sheets
-  const [verifiedMember,setVerifiedMember] = useState(null); // name of PIN-verified member
+  const [verifiedMember,setVerifiedMember] = useState(null);
   const [showMemberPin,setShowMemberPin]   = useState(false);
+  const [memberPins,setMemberPins]         = useState({});
+  const [dupWarning,setDupWarning]         = useState(null);
+  const [dupOverride,setDupOverride]       = useState(false);
   const [showMemberPanel,setShowMemberPanel] = useState(false);
   const [showVendorPanel,setShowVendorPanel] = useState(false);
   const [groupedView,setGroupedView] = useState(false);
@@ -2236,8 +2309,6 @@ export default function App() {
   const [form,setForm] = useState({member:"",amount:"",categoryCode:"",purpose:"",date:todayStr(),upiId:"",notes:"",eventId:"",subCategory:"",txnRef:"",chequeNo:"",payeeDetails:""});
   const [submitting,setSubmitting] = useState(false);
   const [toast,setToast]           = useState(null);
-  const [dupWarning,setDupWarning] = useState(null);   // {level, txnId, msg} for single-entry form
-  const [dupOverride,setDupOverride] = useState(false); // user ack'd the warning
 
   const [fYear,setFYear]     = useState("all");
   const [fMonth,setFMonth]   = useState("all");
@@ -2308,16 +2379,15 @@ export default function App() {
       const r=await fetch(u,{redirect:"follow"});
       const d=await r.json();
       if(d.success){
-        // Backfill category label from categoryCode for entries loaded from Sheets
-        // Apps Script sends categoryCode but not the display label — resolve it here
-        setEntries((d.entries||[]).map(e=>({
-          ...e,
-          category: e.category || catByCode(e.categoryCode).label || e.categoryCode || "Unknown"
-        })));
+        setEntries((d.entries||[]).map(function(e){
+          return {...e, category: e.category || (catByCode(e.categoryCode) && catByCode(e.categoryCode).label) || e.categoryCode || "Unknown"};
+        }));
         setEvents(d.events||[]);
         setCounters(d.counters||{});
         if(d.members&&d.members.length>0)setMembers(d.members);
         if(d.pin)setTreasurerPin(String(d.pin));
+        if(d.memberPins)setMemberPins(d.memberPins);
+        if(d.treasurerMembers)setTreasurerMembers(d.treasurerMembers);
         if(d.memberPins)setMemberPins(d.memberPins); // {name: "1234"} from Members tab
         if(d.treasurerMembers)setTreasurerMembers(d.treasurerMembers);
         setDbReady(true);
@@ -2368,111 +2438,107 @@ export default function App() {
       addLog("Submit blocked — invalid amount: "+form.amount,"warn");
       return;
     }
-    // Duplicate detection on single submit
-    const dup = checkSingleDup(entries, form);
-    if (dup && !dupOverride) {
-      setDupWarning(dup);
-      if (dup.level === "hard") {
-        showToast(`🔴 Exact duplicate detected — ${dup.txnId}. Scroll down to override if intentional.`, "error");
-        setSubmitting(false); return;
-      }
-      // soft warning: show it but don't block yet — user must check the override box
-      showToast(`🟡 Possible duplicate: ${dup.msg}. Check the warning below.`, "warning");
-      setSubmitting(false); return;
-    }
     if(form.date>todayStr()){showToast("⚠ Date is in the future — please check","warning");addLog("Warning: future date "+form.date,"warn");}
     // 30-day backdating restriction
     const cutoff=new Date(); cutoff.setDate(cutoff.getDate()-30);
     if(new Date(form.date)<cutoff){showToast("❌ Date is more than 30 days in the past. Contact the Treasurer for older entries.","error");addLog("Submit blocked — date too old: "+form.date,"warn");return;}
     setSubmitting(true);
-    addLog(`→ Submitting expense: ${form.categoryCode} ₹${parsedAmt} by ${form.member}`,"info");
     try {
-      const evObj=events.find(e=>e.id===form.eventId);
-      const cKey=isEventCat&&evObj?`GNCEV-${evObj.tag}`:form.categoryCode;
-      const n=(counters[cKey]||0)+1;
-      const payTag = payType==="cash"?"CASH":payType==="cheque"?"CHQ":payType==="netbanking"?"NB":"";
-      const txnId = payTag
-        ?(isEventCat&&evObj?`GNCEV-${evObj.tag}-${payTag}-${pad5(n)}`:`${form.categoryCode}-${payTag}-${pad5(n)}`)
-        :(isEventCat&&evObj?`GNCEV-${evObj.tag}-${pad5(n)}`:`${form.categoryCode}${pad5(n)}`);
-      const payLabel = payType==="cash"
-        ? `Cash – ${form.upiId||"direct payment"}`
-        : payType==="cheque"
-          ? `Cheque #${form.chequeNo||"—"} | ${form.payeeDetails||"—"}`
-          : payType==="netbanking"
-            ? `Net Banking – ${form.txnRef||""}`
-            : form.upiId;
-      const entry={
-        id:genId(),txnId,date:form.date,member:form.member,
-        categoryCode:form.categoryCode,category:selCat.label,
-        amount:parsedAmt,purpose:form.purpose,
-        upiId:payLabel,
-        status:"Pending",notes:form.notes,
-        eventId:form.eventId||null,subCategory:form.subCategory||null,
-        payType,txnRef:form.txnRef||null,
-        receiptDataUrl: receiptDataUrl||null,
-        receiptUrl: null,
-        invoiceDataUrl: invoiceDataUrl||null,
-        invoiceUrl: null,
-      };
-      setEntries(p=>[entry,...p]);
-      setCounters(p=>({...p,[cKey]:n}));
-      const savedReceipt = receiptDataUrl;
-      const savedReceiptMime = receiptDataUrl ? receiptDataUrl.split(";")[0].replace("data:","") : null;
-      const savedInvoice = invoiceDataUrl;
-      const savedInvoiceMime = invoiceDataUrl ? invoiceDataUrl.split(";")[0].replace("data:","") : null;
-      // Keep verifiedMember alive — reset form but preserve member
-      setForm(f=>({member:verifiedMember||f.member,amount:"",categoryCode:"",purpose:"",date:todayStr(),upiId:"",notes:"",eventId:"",subCategory:"",txnRef:"",chequeNo:"",payeeDetails:""}));
-      setFieldErrors({});
-      setDupWarning(null); setDupOverride(false);
-      setReceiptDataUrl(null);resetReceiptInput();setInvoiceDataUrl(null);resetInvoiceInput();
-      showToast(`✅ Expense submitted! ID: ${txnId}`);
-      addLog(`✓ Entry created: ${txnId} ₹${parsedAmt}`,"ok");
-      if(scriptUrl){
-        setSyncStatus("syncing");
-        const r=await callScript("addEntry",{entry});
-        setSyncStatus(r.success?"ok":"fail");
-        if(!r.success)showToast(`Sheet sync failed: ${r.error}`,"warning");
-        await callScript("updateCounter",{key:cKey,value:n});
-        if(savedReceipt && r.success){
-          addLog(`→ Uploading receipt to Google Drive...`,"info");
-          const base64 = savedReceipt.split(",")[1];
-          const dr = await callScript("saveReceipt",{
-            txnId, base64, mimeType: savedReceiptMime||"image/jpeg",
-            date: entry.date, member: entry.member, fileType: "receipt"
-          });
-          if(dr.success){
-            addLog(`✓ Receipt saved to Drive: ${dr.folder}/${dr.fileName}`,"ok");
-            setEntries(p=>p.map(e=>e.id===entry.id?{...e,receiptUrl:dr.viewUrl,receiptFileId:dr.fileId}:e));
-            showToast(`📎 Receipt saved to Drive — ${dr.folder}`,"success");
-          }else{
-            addLog(`⚠ Receipt Drive upload failed: ${dr.error} — kept locally`,"warn");
-            showToast(`Receipt kept locally (Drive upload failed: ${dr.error})`,"warning");
-          }
+    addLog(`→ Submitting expense: ${form.categoryCode} ₹${parsedAmt} by ${form.member}`,"info");
+    const evObj=events.find(e=>e.id===form.eventId);
+    const cKey=isEventCat&&evObj?`GNCEV-${evObj.tag}`:form.categoryCode;
+    const n=(counters[cKey]||0)+1;
+    const payTag = payType==="cash"?"CASH":payType==="cheque"?"CHQ":payType==="netbanking"?"NB":"";
+    const txnId = payTag
+      ?(isEventCat&&evObj?`GNCEV-${evObj.tag}-${payTag}-${pad5(n)}`:`${form.categoryCode}-${payTag}-${pad5(n)}`)
+      :(isEventCat&&evObj?`GNCEV-${evObj.tag}-${pad5(n)}`:`${form.categoryCode}${pad5(n)}`);
+    const payLabel = payType==="cash"
+      ? `Cash – ${form.upiId||"direct payment"}`
+      : payType==="cheque"
+        ? `Cheque #${form.chequeNo||"—"} | ${form.payeeDetails||"—"}`
+        : payType==="netbanking"
+          ? `Net Banking – ${form.txnRef||""}`
+          : form.upiId;
+    const entry={
+      id:genId(),txnId,date:form.date,member:form.member,
+      categoryCode:form.categoryCode,category:selCat.label,
+      amount:parsedAmt,purpose:form.purpose,
+      upiId:payLabel,
+      status:"Pending",notes:form.notes,
+      eventId:form.eventId||null,subCategory:form.subCategory||null,
+      payType,txnRef:form.txnRef||null,
+      receiptDataUrl: receiptDataUrl||null, // local preview until Drive upload completes
+      receiptUrl: null, // will be set after Drive upload
+      invoiceDataUrl: invoiceDataUrl||null, // local preview until Drive upload completes
+      invoiceUrl: null, // will be set after Drive upload
+    };
+    setEntries(p=>[entry,...p]);
+    setCounters(p=>({...p,[cKey]:n}));
+    const savedReceipt = receiptDataUrl; // capture before clearing
+    const savedReceiptMime = receiptDataUrl ? receiptDataUrl.split(";")[0].replace("data:","") : null;
+    const savedInvoice = invoiceDataUrl; // capture before clearing
+    const savedInvoiceMime = invoiceDataUrl ? invoiceDataUrl.split(";")[0].replace("data:","") : null;
+    setForm(f=>({member:verifiedMember||f.member,amount:"",categoryCode:"",purpose:"",date:todayStr(),upiId:"",notes:"",eventId:"",subCategory:"",txnRef:"",chequeNo:"",payeeDetails:""}));
+    setFieldErrors({});
+    setDupWarning(null);setDupOverride(false);
+    setReceiptDataUrl(null);resetReceiptInput();setInvoiceDataUrl(null);resetInvoiceInput();
+    setSubmitting(false);
+    showToast(`✅ Expense submitted! ID: ${txnId}`);
+    addLog(`✓ Entry created: ${txnId} ₹${parsedAmt}`,"ok");
+    if(scriptUrl){
+      setSyncStatus("syncing");
+      const r=await callScript("addEntry",{entry});
+      setSyncStatus(r.success?"ok":"fail");
+      if(!r.success)showToast(`Sheet sync failed: ${r.error}`,"warning");
+      await callScript("updateCounter",{key:cKey,value:n});
+      // Upload receipt to Google Drive if one was attached
+      if(savedReceipt && r.success){
+        addLog(`→ Uploading receipt to Google Drive...`,"info");
+        const base64 = savedReceipt.split(",")[1];
+        const dr = await callScript("saveReceipt",{
+          txnId,
+          base64,
+          mimeType: savedReceiptMime||"image/jpeg",
+          date: entry.date,
+          member: entry.member,
+          fileType: "receipt"
+        });
+        if(dr.success){
+          addLog(`✓ Receipt saved to Drive: ${dr.folder}/${dr.fileName}`,"ok");
+          setEntries(p=>p.map(e=>e.id===entry.id?{...e,receiptUrl:dr.viewUrl,receiptFileId:dr.fileId}:e));
+          showToast(`📎 Receipt saved to Drive — ${dr.folder}`,"success");
+        }else{
+          addLog(`⚠ Receipt Drive upload failed: ${dr.error} — kept locally`,"warn");
+          showToast(`Receipt kept locally (Drive upload failed: ${dr.error})`,"warning");
         }
-        if(savedInvoice && r.success){
-          addLog(`→ Uploading invoice to Google Drive...`,"info");
-          const base64inv = savedInvoice.split(",")[1];
-          const dinv = await callScript("saveReceipt",{
-            txnId, base64: base64inv, mimeType: savedInvoiceMime||"image/jpeg",
-            date: entry.date, member: entry.member, fileType: "invoice"
-          });
-          if(dinv.success){
-            addLog(`✓ Invoice saved to Drive: ${dinv.folder}/${dinv.fileName}`,"ok");
-            setEntries(p=>p.map(e=>e.id===entry.id?{...e,invoiceUrl:dinv.viewUrl,invoiceFileId:dinv.fileId}:e));
-            showToast(`📄 Invoice saved to Drive — ${dinv.folder}`,"success");
-          }else{
-            addLog(`⚠ Invoice Drive upload failed: ${dinv.error} — kept locally`,"warn");
-            showToast(`Invoice kept locally (Drive upload failed: ${dinv.error})`,"warning");
-          }
+      }
+      // Upload invoice to Google Drive if one was attached
+      if(savedInvoice && r.success){
+        addLog(`→ Uploading invoice to Google Drive...`,"info");
+        const base64inv = savedInvoice.split(",")[1];
+        const dinv = await callScript("saveReceipt",{
+          txnId,
+          base64: base64inv,
+          mimeType: savedInvoiceMime||"image/jpeg",
+          date: entry.date,
+          member: entry.member,
+          fileType: "invoice"
+        });
+        if(dinv.success){
+          addLog(`✓ Invoice saved to Drive: ${dinv.folder}/${dinv.fileName}`,"ok");
+          setEntries(p=>p.map(e=>e.id===entry.id?{...e,invoiceUrl:dinv.viewUrl,invoiceFileId:dinv.fileId}:e));
+          showToast(`📄 Invoice saved to Drive — ${dinv.folder}`,"success");
+        }else{
+          addLog(`⚠ Invoice Drive upload failed: ${dinv.error} — kept locally`,"warn");
+          showToast(`Invoice kept locally (Drive upload failed: ${dinv.error})`,"warning");
         }
-        setTimeout(()=>setSyncStatus(null),3000);
-      }else{addLog("No DB connected — entry saved locally only","warn");}
-    } catch(submitErr) {
-      // Catch-all: log the error, show toast, never leave button stuck
-      addLog(`✗ Unexpected submit error: ${submitErr.message}`,"error");
-      showToast(`Unexpected error — please try again (${submitErr.message})`,"error");
+      }
+      setTimeout(()=>setSyncStatus(null),3000);
+    }else{addLog("No DB connected — entry saved locally only","warn");}
+    } catch(err) {
+      addLog("Submit error: "+err.message,"error");
+      showToast("Error: "+err.message,"error");
     } finally {
-      // CRITICAL FIX: setSubmitting(false) ALWAYS runs — button can never get stuck
       setSubmitting(false);
     }
   };
@@ -2495,7 +2561,7 @@ export default function App() {
     if(fMember!=="all"&&e.member!==fMember)return false;
     if(searchQ.trim()){
       const q=searchQ.trim().toLowerCase();
-      const haystack=`${e.txnId} ${e.purpose} ${e.member} ${e.amount} ${e.upiId||""} ${e.notes||""} ${(e.category||catByCode(e.categoryCode).label||e.categoryCode||"Unknown")}`.toLowerCase();
+      const haystack=`${e.txnId} ${e.purpose} ${e.member} ${e.amount} ${e.upiId||""} ${e.notes||""} ${e.category}`.toLowerCase();
       if(!haystack.includes(q))return false;
     }
     return true;
@@ -2503,17 +2569,15 @@ export default function App() {
   const totalAmt   = filtered.reduce((s,e)=>s+e.amount,0);
   const pendingAmt = filtered.filter(e=>e.status==="Pending").reduce((s,e)=>s+e.amount,0);
   const reimAmt    = filtered.filter(e=>e.status==="Reimbursed").reduce((s,e)=>s+e.amount,0);
-  // Pre-compute breakdown items outside JSX to avoid esbuild parsing issues with complex expressions
   const catBreakdownItems = Object.entries(
-    filtered.reduce((a,e)=>{
-      const cl = e.category || (catByCode(e.categoryCode) && catByCode(e.categoryCode).label) || e.categoryCode || "Unknown";
-      a[cl] = (a[cl]||0) + e.amount;
-      return a;
+    filtered.reduce(function(a,e){
+      var cl = e.category || (catByCode(e.categoryCode) && catByCode(e.categoryCode).label) || e.categoryCode || "Unknown";
+      a[cl] = (a[cl]||0) + e.amount; return a;
     }, {})
-  ).sort((a,b)=>b[1]-a[1]);
+  ).sort(function(a,b){return b[1]-a[1];});
   const memberBreakdownItems = Object.entries(
-    filtered.reduce((a,e)=>{ a[e.member]=(a[e.member]||0)+e.amount; return a; }, {})
-  ).sort((a,b)=>b[1]-a[1]).slice(0,7);
+    filtered.reduce(function(a,e){a[e.member]=(a[e.member]||0)+e.amount;return a;},{})
+  ).sort(function(a,b){return b[1]-a[1];}).slice(0,7);
   // When a member filter is active, show their pending total prominently
   const memberFilterActive = fMember!=="all";
   const memberPendingAmt   = memberFilterActive ? pendingAmt : null;
@@ -2599,29 +2663,15 @@ export default function App() {
     if(scriptUrl)await callScript("removeMember",{name});
   };
 
-  // Save a member's PIN (first-login set or change)
   const handleSaveMemberPin=async(name, pin)=>{
     setMemberPins(p=>({...p,[name]:String(pin)}));
-    addLog(`→ Saving PIN for ${name}...`,"info");
-    if(scriptUrl){
-      const r=await callScript("setMemberPin",{name,pin:String(pin)});
-      if(r.success) addLog(`✓ PIN saved for ${name}`,"ok");
-      else addLog(`⚠ PIN save failed: ${r.error}`,"warn");
-    }
+    if(scriptUrl){const r=await callScript("setMemberPin",{name,pin:String(pin)});if(!r.success)addLog("PIN save failed: "+r.error,"warn");}
   };
-
-  // Reset a member's PIN (Treasurer action — clears it so they set a new one on next login)
   const handleResetMemberPin=async(name)=>{
-    setMemberPins(p=>{const n={...p}; delete n[name]; return n;});
-    showToast(`🔑 PIN cleared for ${name} — they'll set a new one on next login`,"info");
-    addLog(`→ Resetting PIN for ${name}...`,"info");
-    if(scriptUrl){
-      const r=await callScript("setMemberPin",{name,pin:""});
-      if(r.success) addLog(`✓ PIN reset for ${name}`,"ok");
-      else addLog(`⚠ PIN reset failed: ${r.error}`,"warn");
-    }
+    setMemberPins(p=>{const n={...p};delete n[name];return n;});
+    showToast("PIN cleared for "+name+" — they will set a new one on next login","info");
+    if(scriptUrl)await callScript("setMemberPin",{name,pin:""});
   };
-
   const handleAddVendor=(name)=>{
     if(vendors.includes(name)){showToast("Vendor already exists","warning");return;}
     setVendors(p=>[...p,name].sort());
@@ -2649,40 +2699,35 @@ export default function App() {
 
   const exportCSV=()=>{
     const H=["Txn ID","Date","Member","Category","Amount","Purpose","UPI ID","Status","Notes","Event","Sub-Category"];
-    const R=filtered.map(e=>[e.txnId,e.date,e.member,(e.category||catByCode(e.categoryCode).label||e.categoryCode||"Unknown"),e.amount,`"${e.purpose}"`,e.upiId,e.status,`"${e.notes||""}"`,events.find(ev=>ev.id===e.eventId)?.name||"",e.subCategory||""]);
+    const R=filtered.map(e=>[e.txnId,e.date,e.member,e.category,e.amount,`"${e.purpose}"`,e.upiId,e.status,`"${e.notes||""}"`,events.find(ev=>ev.id===e.eventId)?.name||"",e.subCategory||""]);
     const csv=[H,...R].map(r=>r.join(",")).join("\n");
     const a=Object.assign(document.createElement("a"),{href:URL.createObjectURL(new Blob([csv],{type:"text/csv"})),download:`nandanam-${todayStr()}.csv`});
     a.click();
   };
 
   const generatePDF=()=>{
-    const catBreakdown=catBreakdownItems;
+    const catBreakdown=Object.entries(filtered.reduce((a,e)=>{a[e.category]=(a[e.category]||0)+e.amount;return a;},{})).sort((a,b)=>b[1]-a[1]);
     const memberBreakdown=Object.entries(filtered.reduce((a,e)=>{a[e.member]=(a[e.member]||0)+e.amount;return a;},{})).sort((a,b)=>b[1]-a[1]);
     const filterDesc=[
       fYear!=="all"?`Year: ${fYear}`:"",
       fMonth!=="all"?`Month: ${MONTHS[Number(fMonth)]}`:"",
       fStatus!=="all"?`Status: ${fStatus}`:"",
       fCat!=="all"?`Category: ${fCat}`:"",
-      fEvent!=="all"?("Event: "+((events.find(e=>e.id===fEvent)||{name:fEvent}).name)):"",
+      fEvent!=="all"?`Event: ${events.find(e=>e.id===fEvent)?.name||fEvent}`:"",
     ].filter(Boolean).join("  ·  ")||"All Records";
 
     const rows=filtered.map(e=>{
       const ev=events.find(ev=>ev.id===e.eventId);
       const statusClass=e.status==="Reimbursed"?"reimbursed":"pending";
-      const evTag   = ev ? ('<br/><span style="color:#7c3aed;font-size:10px;font-weight:600">🎉 '+ev.name+'</span>') : "";
-      const subTag  = e.subCategory ? ('<br/><span style="color:#6b7280;font-size:10px">'+e.subCategory+'</span>') : "";
-      const noteTag = e.notes ? ('<br/><span style="color:#9ca3af;font-size:11px">'+e.notes+'</span>') : "";
-      const catLabel= e.category||catByCode(e.categoryCode).label||e.categoryCode||"Unknown";
-      const dateStr = new Date(e.date).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"});
-      return "<tr>"
-        +"<td><span class=\"txn-id\">"+e.txnId+"</span>"+evTag+subTag+"</td>"
-        +"<td style=\"font-weight:500;white-space:nowrap\">"+dateStr+"</td>"
-        +"<td style=\"font-weight:700;color:#111827\">"+e.member+"</td>"
-        +"<td><span class=\"cat-pill\">"+catLabel+"</span></td>"
-        +"<td style=\"max-width:180px;color:#374151\">"+e.purpose+noteTag+"</td>"
-        +"<td class=\"amt-cell\">₹"+Number(e.amount).toLocaleString("en-IN")+"</td>"
-        +"<td style=\"text-align:center\"><span class=\"status-pill "+statusClass+"\">"+e.status+"</span></td>"
-        +"</tr>";
+      return `<tr>
+        <td><span class="txn-id">${e.txnId}</span>${ev?`<br/><span style="color:#7c3aed;font-size:10px;font-weight:600">🎉 ${ev.name}</span>`:""}${e.subCategory?`<br/><span style="color:#6b7280;font-size:10px">${e.subCategory}</span>`:""}</td>
+        <td style="font-weight:500;white-space:nowrap">${new Date(e.date).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"})}</td>
+        <td style="font-weight:700;color:#111827">${e.member}</td>
+        <td><span class="cat-pill">${e.category}</span></td>
+        <td style="max-width:180px;color:#374151">${e.purpose}${e.notes?`<br/><span style="color:#9ca3af;font-size:11px">${e.notes}</span>`:""}</td>
+        <td class="amt-cell">₹${Number(e.amount).toLocaleString("en-IN")}</td>
+        <td style="text-align:center"><span class="status-pill ${statusClass}">${e.status}</span></td>
+      </tr>`;
     }).join("");
 
     const catRows=catBreakdown.map(([name,amt])=>{
@@ -3027,10 +3072,6 @@ export default function App() {
           .pay-toggle button{font-size:9px!important;padding:7px 2px!important;}
           .hdr-conn-btn{font-size:10px!important;padding:5px 7px!important;}
           .hdr-actions{gap:4px!important;}
-          .balance-grid{grid-template-columns:1fr!important;}
-          .tbl-wrap{overflow-x:auto!important;-webkit-overflow-scrolling:touch!important;}
-          .tbl-wrap table{min-width:520px!important;}
-          .bulk-modal{padding:12px!important;}
         }
 
         /* ══ MOBILE XS-PLUS: 360–389px (OnePlus 12R, many mid-range Android) ══ */
@@ -3043,7 +3084,6 @@ export default function App() {
         /* ══ MOBILE S: 390–479px (iPhone 14/15, Pixel 6a) ══ */
         /* 390-419px: iPhone 14/15 base, OnePlus 12R (412px), iQOO Neo 10R (412px) */
         @media(min-width:390px) and (max-width:419px){
-          .balance-grid{grid-template-columns:1fr!important;}
           .nav-label{display:none!important;}
           .nav-btn{padding:6px 6px!important;font-size:10px!important;}
           .hdr-inner{padding:0 8px!important;height:52px!important;}
@@ -3063,7 +3103,6 @@ export default function App() {
 
         /* 420-479px: Pixel 6a, Samsung A-series */
         @media(min-width:420px) and (max-width:479px){
-          .balance-grid{grid-template-columns:1fr!important;}
           .nav-label{display:none!important;}
           .nav-btn{padding:7px 8px!important;font-size:11px!important;}
           .hdr-inner{padding:0 10px!important;height:54px!important;}
@@ -3082,7 +3121,6 @@ export default function App() {
 
         /* ══ MOBILE L: 480–639px (6.5–6.7″ Android, iPhone Plus/Max) ══ */
         @media(min-width:480px) and (max-width:639px){
-          .balance-grid{grid-template-columns:1fr!important;}
           .nav-label{display:none!important;}
           .nav-btn{padding:8px 10px!important;font-size:11px!important;}
           .hdr-inner{padding:0 14px!important;height:56px!important;}
@@ -3116,11 +3154,7 @@ export default function App() {
           .cat-grid{grid-template-columns:repeat(3,1fr)!important;}
           .stat-grid{grid-template-columns:repeat(3,1fr)!important;}
           .ev-grid{grid-template-columns:repeat(auto-fill,minmax(320px,1fr))!important;}
-          .tbl-wrap{overflow-x:auto!important;}
         }
-        /* ══ GLOBAL: all sizes — tbl-wrap always scrollable, never clipped ══ */
-        .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%;}
-        .tbl-wrap table{table-layout:auto;}
 
         /* ══ WIDE MONITOR: 1440px+ ══ */
         @media(min-width:1440px){
@@ -3169,22 +3203,14 @@ export default function App() {
               </span>
             )}
             {isTreasurer&&(
-              <span className="hdr-extra-btns" style={{display:"contents"}}>
-                <button onClick={()=>{setIsTreasurer(false);setView("submit");showToast("Locked — back to member view","info");}} style={{background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.2)",color:"#ef4444",borderRadius:10,padding:"7px 11px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,display:"flex",alignItems:"center",gap:5}}>
-                  🔒 Lock
-                </button>
-                <button onClick={()=>setShowSheets(true)} style={{marginLeft:4,background:dbReady?"rgba(16,185,129,0.1)":"rgba(251,191,36,0.08)",border:`1px solid ${dbReady?"rgba(16,185,129,0.3)":"rgba(251,191,36,0.25)"}`,color:dbReady?"#10b981":"#fbbf24",borderRadius:10,padding:"7px 13px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,display:"flex",alignItems:"center",gap:6}}>
-                  <Icon n="sht" s={13}/>
-                  {syncStatus==="syncing"?<><Spin/>Syncing</>:syncStatus==="ok"?"✓ Saved":syncStatus==="fail"?"⚠ Sync fail":dbReady?"● DB Live":"Connect DB"}
-                </button>
-              </span>
+              <button onClick={()=>{setIsTreasurer(false);setView("submit");showToast("Locked — back to member view","info");}} style={{background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.2)",color:"#ef4444",borderRadius:10,padding:"7px 11px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,display:"flex",alignItems:"center",gap:5}}>
+                🔒 Lock
+              </button>
             )}
-            {/* Sync status indicator for members — no connect button, just shows sync state */}
-            {!isTreasurer&&syncStatus&&(
-              <div style={{marginLeft:6,background:syncStatus==="ok"?"rgba(16,185,129,0.08)":syncStatus==="fail"?"rgba(239,68,68,0.08)":"rgba(255,255,255,0.05)",border:`1px solid ${syncStatus==="ok"?"rgba(16,185,129,0.25)":syncStatus==="fail"?"rgba(239,68,68,0.25)":"rgba(255,255,255,0.1)"}`,color:syncStatus==="ok"?"#10b981":syncStatus==="fail"?"#ef4444":"rgba(255,255,255,0.4)",borderRadius:10,padding:"7px 13px",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:6,fontFamily:"'DM Sans',sans-serif"}}>
-                {syncStatus==="syncing"?<><Spin/>Syncing</>:syncStatus==="ok"?"✓ Saved":"⚠ Sync fail"}
-              </div>
-            )}
+            {isTreasurer&&<button onClick={()=>setShowSheets(true)} style={{marginLeft:6,background:dbReady?"rgba(16,185,129,0.1)":"rgba(251,191,36,0.08)",border:`1px solid ${dbReady?"rgba(16,185,129,0.3)":"rgba(251,191,36,0.25)"}`,color:dbReady?"#10b981":"#fbbf24",borderRadius:10,padding:"7px 13px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,display:"flex",alignItems:"center",gap:6}}>
+              <Icon n="sht" s={13}/>
+              {syncStatus==="syncing"?<><Spin/>Syncing</>:syncStatus==="ok"?"✓ Saved":syncStatus==="fail"?"⚠ Sync fail":dbReady?"● DB Live":"Connect DB"}
+            </button>
             <button onClick={()=>setShowDebug(v=>!v)} title="Debug Log" style={{marginLeft:4,background:debugLog.some(l=>l.level==="error")?"rgba(239,68,68,0.15)":"rgba(255,255,255,0.05)",border:`1px solid ${debugLog.some(l=>l.level==="error")?"rgba(239,68,68,0.4)":"rgba(255,255,255,0.1)"}`,color:debugLog.some(l=>l.level==="error")?"#ef4444":"rgba(255,255,255,0.4)",borderRadius:10,padding:"7px 10px",cursor:"pointer",fontSize:12,fontFamily:"'DM Sans',sans-serif",fontWeight:600,display:"flex",alignItems:"center",gap:5,position:"relative"}}>
               🪲
               {debugLog.filter(l=>l.level==="error").length>0&&<span style={{background:"#ef4444",color:"#fff",borderRadius:10,fontSize:9,fontWeight:800,padding:"1px 5px"}}>{debugLog.filter(l=>l.level==="error").length}</span>}
@@ -3213,7 +3239,7 @@ export default function App() {
                 <div>
                   <h2 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:27,color:"#fbbf24",margin:"0 0 4px"}}>Submit Expense</h2>
                   <p style={{color:"rgba(255,255,255,0.4)",fontSize:13,margin:0}}>Attach a receipt or screenshot for your records</p>
-                  {verifiedMember&&<div style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:6,background:isTreasurerMember(verifiedMember)?"rgba(251,191,36,0.1)":"rgba(16,185,129,0.1)",border:`1px solid ${isTreasurerMember(verifiedMember)?"rgba(251,191,36,0.4)":"rgba(16,185,129,0.3)"}`,borderRadius:8,padding:"4px 10px",fontSize:12,color:isTreasurerMember(verifiedMember)?"#fbbf24":"#10b981",fontWeight:700}}>✓ Verified: {verifiedMember}{isTreasurerMember(verifiedMember)&&<span style={{fontSize:10,opacity:0.8}}> ★ Treasurer</span>}</div>}
+                  {verifiedMember&&<div style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:6,background:isTreasurerMember(verifiedMember)?"rgba(251,191,36,0.1)":"rgba(16,185,129,0.1)",border:`1px solid ${isTreasurerMember(verifiedMember)?"rgba(251,191,36,0.4)":"rgba(16,185,129,0.3)"}`,borderRadius:8,padding:"4px 10px",fontSize:12,color:isTreasurerMember(verifiedMember)?"#fbbf24":"#10b981",fontWeight:700}}>✓ Verified: {verifiedMember}{isTreasurerMember(verifiedMember)&&<span style={{fontSize:10,opacity:0.8}}> ★ Treasurer</span>} <button onClick={()=>{setVerifiedMember(null);setForm(f=>({...f,member:""}));}} style={{background:"none",border:"none",color:"rgba(255,255,255,0.3)",cursor:"pointer",fontSize:11,padding:0,marginLeft:2}}>switch</button></div>}
                 </div>
                 <button onClick={()=>setShowBulk(true)} style={{flexShrink:0,background:"linear-gradient(135deg,#3730a3,#4f46e5)",color:"#fff",border:"none",borderRadius:11,padding:"9px 15px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,display:"flex",alignItems:"center",gap:7,boxShadow:"0 4px 16px rgba(99,102,241,0.4)",whiteSpace:"nowrap"}}>
                   <span style={{fontSize:15}}>📥</span> Bulk Import
@@ -3335,12 +3361,11 @@ export default function App() {
                 )}
                 <div>
                   <label style={{...LBL,color:fieldErrors.member?"#ef4444":undefined}}>Member Name *</label>
-                  {/* BUG 2 FIX: Lock member field to verified identity — cannot change to another member */}
                   {verifiedMember ? (
-                    <div style={{...INP,display:"flex",alignItems:"center",gap:10,background:"rgba(16,185,129,0.07)",border:"1.5px solid rgba(16,185,129,0.35)",cursor:"default",userSelect:"none",paddingTop:9,paddingBottom:9}}>
+                    <div style={{...INP,display:"flex",alignItems:"center",gap:10,background:"rgba(16,185,129,0.07)",border:"1.5px solid rgba(16,185,129,0.35)",cursor:"default",paddingTop:9,paddingBottom:9}}>
                       <span style={{fontSize:16}}>✓</span>
-                      <span style={{flex:1,fontWeight:700,color:isTreasurerMember(verifiedMember)?"#fbbf24":"#10b981"}}>{verifiedMember}{isTreasurerMember(verifiedMember)&&<span style={{fontSize:10,opacity:0.8}}> ★ Treasurer</span>}</span>
-                      <button type="button" onClick={()=>{setVerifiedMember(null);setForm(f=>({...f,member:""}));}} style={{background:"none",border:"none",color:"rgba(255,255,255,0.35)",cursor:"pointer",fontSize:11,fontFamily:"'DM Sans',sans-serif",padding:"2px 6px",borderRadius:5,border:"1px solid rgba(255,255,255,0.12)"}}>switch</button>
+                      <span style={{flex:1,fontWeight:700,color:isTreasurerMember(verifiedMember)?"#fbbf24":"#10b981"}}>{verifiedMember}</span>
+                      <button type="button" onClick={()=>{setVerifiedMember(null);setForm(f=>({...f,member:""}));}} style={{background:"none",border:"1px solid rgba(255,255,255,0.12)",color:"rgba(255,255,255,0.35)",cursor:"pointer",fontSize:11,fontFamily:"'DM Sans',sans-serif",padding:"2px 6px",borderRadius:5}}>switch</button>
                     </div>
                   ) : (
                     <select value={form.member} onChange={e=>{setForm(f=>({...f,member:e.target.value}));clearFieldError("member");}} style={inpStyle("member")}>
@@ -3433,50 +3458,17 @@ export default function App() {
                   <input value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} placeholder="Any additional context" style={INP}/>
                 </div>
 
-                {/* ── Duplicate Warning Panel ── */}
-                {dupWarning && (
-                  <div style={{background:dupWarning.level==="hard"?"rgba(239,68,68,0.1)":"rgba(245,158,11,0.08)",
-                    border:`1px solid ${dupWarning.level==="hard"?"rgba(239,68,68,0.45)":"rgba(245,158,11,0.4)"}`,
-                    borderRadius:12,padding:"12px 15px"}}>
-                    <div style={{fontSize:13,fontWeight:700,
-                      color:dupWarning.level==="hard"?"#ef4444":"#f59e0b",marginBottom:6,display:"flex",alignItems:"center",gap:7}}>
-                      {dupWarning.level==="hard"?"🔴 Exact Duplicate Detected":"🟡 Possible Duplicate"}
-                    </div>
-                    <div style={{fontSize:12,color:"rgba(255,255,255,0.55)",marginBottom:10,lineHeight:1.5}}>
-                      {dupWarning.msg}
-                    </div>
-                    <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
-                      <input type="checkbox" checked={dupOverride} onChange={e=>setDupOverride(e.target.checked)}
-                        style={{width:15,height:15,accentColor:dupWarning.level==="hard"?"#ef4444":"#f59e0b",cursor:"pointer"}}/>
-                      <span style={{fontSize:12,color:"rgba(255,255,255,0.6)",fontWeight:600}}>
-                        I confirm this is a different transaction and not a duplicate
-                      </span>
-                    </label>
-                    {dupOverride && (
-                      <div style={{marginTop:6,fontSize:11,color:"rgba(16,185,129,0.7)",fontWeight:600}}>
-                        ✓ Override acknowledged — you can now submit
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <button onClick={handleSubmit}
-                  disabled={submitting || (dupWarning && !dupOverride)}
-                  style={{...BLUE_BTN,width:"100%",justifyContent:"center",marginTop:4,
-                    opacity:(submitting||(dupWarning&&!dupOverride))?0.6:1}}>
+                <button onClick={handleSubmit} disabled={submitting} style={{...BLUE_BTN,width:"100%",justifyContent:"center",marginTop:4,opacity:submitting?0.7:1}}>
                   {submitting?<><Spin/>Submitting...</>:<><Icon n="plus" s={17}/>Submit Expense</>}
                 </button>
               </div>
             </div>
-
           </div>
-
-          {/* ── Community Transactions — full width below the form grid ── */}
+          {/* Community Transactions */}
           <div style={{marginTop:36}}>
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
               <div style={{flex:1,height:1,background:"rgba(255,255,255,0.07)"}}/>
-              <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.25)",
-                textTransform:"uppercase",letterSpacing:"0.09em"}}>Community Transactions</span>
+              <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.25)",textTransform:"uppercase",letterSpacing:"0.09em"}}>Community Transactions</span>
               <div style={{flex:1,height:1,background:"rgba(255,255,255,0.07)"}}/>
             </div>
             <TxnsView
@@ -3569,7 +3561,7 @@ export default function App() {
                 <div style={{textAlign:"right"}}>
                   <div style={{fontSize:10,color:"rgba(255,255,255,0.3)"}}>vs {thisYear-1}: {fmt(lastYrTotal)}</div>
                   <div style={{fontSize:15,fontWeight:800,color:ytdDiff>0?"#f87171":ytdDiff<0?"#34d399":"#fbbf24",marginTop:2}}>
-                    {ytdDiff===0?"—":(ytdDiff>0?"↑ ":"↓ ")+fmt(Math.abs(ytdDiff))}{ytdDiff!==0&&lastYrTotal>0&&(" ("+(ytdDiff>0?"+":"")+Math.round(ytdDiff/lastYrTotal*100)+"%)")}
+                    {ytdDiff===0?"—":(ytdDiff>0?"↑ ":"↓ ")+fmt(Math.abs(ytdDiff))}{ytdDiff!==0&&lastYrTotal>0&&(" ("+(ytdDiff>0?"+":"")+Math.round(ytdDiff/lastYrTotal*100)+"%)") }
                   </div>
                 </div>
               )}
@@ -3702,7 +3694,8 @@ export default function App() {
             </div>
 
             {/* Entries Table */}
-            <div style={{background:"rgba(255,255,255,0.02)",borderRadius:16,border:"1px solid rgba(255,255,255,0.06)",overflowX:"auto"}} className="tbl-wrap">
+            <div style={{background:"rgba(255,255,255,0.02)",borderRadius:16,overflow:"hidden",border:"1px solid rgba(255,255,255,0.06)"}}>
+              <div className="tbl-wrap" style={{overflowX:"auto"}}>
                 {(()=>{
                   const EntryRow = ({e, isRecurring, recurType})=>{
                     const cat=catByCode(e.categoryCode||"GNMI");
@@ -3716,7 +3709,7 @@ export default function App() {
                         borderBottom:"1px solid rgba(255,255,255,0.04)",
                         transition:"background 0.15s",
                         background: isRecurring ? "rgba(139,92,246,0.04)" : "transparent",
-                        borderLeft: isRecurring ? "3px solid "+(recurType&&recurType.color?recurType.color:"#a78bfa") : "3px solid transparent",
+                        borderLeft: isRecurring ? `3px solid ${recurType?.color||"#a78bfa"}` : "3px solid transparent",
                       }}>
                         <td style={{padding:"12px 15px"}}>
                           <div onClick={copyTxn} title="Click to copy" style={{fontFamily:"monospace",fontSize:12,color:copied?"#10b981":"#fbbf24",fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
@@ -3793,7 +3786,7 @@ export default function App() {
 
                   if(!groupedView){
                     return (
-                      <table style={{width:"100%",borderCollapse:"collapse",minWidth:640}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",minWidth:820}}>
                         <TH/>
                         <tbody>
                           {filtered.length===0
@@ -3810,7 +3803,7 @@ export default function App() {
 
                   // Grouped view
                   return (
-                    <table style={{width:"100%",borderCollapse:"collapse",minWidth:640}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",minWidth:820}}>
                       <TH/>
                       <tbody>
                         {/* Recurring section header */}
@@ -3904,6 +3897,7 @@ export default function App() {
                   );
                 })()}
               </div>
+            </div>
 
             {/* Breakdowns */}
             <BreakdownPanel
@@ -3935,75 +3929,22 @@ export default function App() {
               </div>
             ):(
               <div className="ev-grid" style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(330px,1fr))",gap:18}}>
-                {events.map(ev=>{
-                  const spent=evSpend(ev.id);
-                  const pct=Math.min(100,ev.budget?(spent/ev.budget*100):0);
-                  const over=spent>ev.budget;
-                  const evEntries=entries.filter(e=>e.eventId===ev.id);
-                  const pending=evEntries.filter(e=>e.status==="Pending").reduce((s,e)=>s+e.amount,0);
-                  return (
-                    <div key={ev.id} style={{background:"linear-gradient(135deg,#071428,#0c1e38)",border:`1px solid ${over?"rgba(239,68,68,0.4)":"rgba(217,70,239,0.25)"}`,borderRadius:18,padding:22,boxShadow:`0 8px 30px ${over?"rgba(239,68,68,0.12)":"rgba(217,70,239,0.08)"}`}}>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
-                        <div>
-                          <div style={{fontSize:17,fontFamily:"'Cormorant Garamond',serif",fontWeight:700,color:"#fff"}}>{ev.name}</div>
-                          <div style={{fontSize:11,color:"rgba(255,255,255,0.35)",marginTop:3}}>
-                            Tag: <span style={{color:"#d946ef",fontFamily:"monospace",fontWeight:700}}>{ev.tag}</span> · {ev.year}
-                          </div>
-                        </div>
-                        <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:5}}>
-                          <Badge status={ev.status} onClick={()=>toggleEvent(ev.id)}/>
-                          {over&&<span style={{fontSize:10,color:"#ef4444",fontWeight:700}}>⚠ OVER BUDGET</span>}
-                            {!over&&pct>=80&&<span style={{fontSize:10,color:"#f59e0b",fontWeight:700}}>⚠ 80% USED</span>}
-                        </div>
-                      </div>
-                      <div style={{marginBottom:14}}>
-                        <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:5}}>
-                          <span style={{color:"rgba(255,255,255,0.4)"}}>Budget utilization</span>
-                          <span style={{color:over?"#ef4444":"#d946ef",fontWeight:700}}>{pct.toFixed(1)}%</span>
-                        </div>
-                        <div style={{height:7,background:"rgba(255,255,255,0.07)",borderRadius:4}}>
-                          <div style={{height:"100%",background:over?"linear-gradient(90deg,#ef4444,#dc2626)":"linear-gradient(90deg,#d946ef,#a855f7)",borderRadius:4,width:`${pct}%`,transition:"width 0.5s ease"}}/>
-                        </div>
-                        <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginTop:5}}>
-                          <span style={{color:"rgba(255,255,255,0.35)"}}>Spent: <strong style={{color:"#fff"}}>{fmt(spent)}</strong></span>
-                          <span style={{color:"rgba(255,255,255,0.35)"}}>Budget: <strong style={{color:"#d946ef"}}>{fmt(ev.budget)}</strong></span>
-                        </div>
-                      </div>
-                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7,marginBottom:14}}>
-                        {[{l:"Entries",v:evEntries.length},{l:"Pending",v:fmt(pending),c:"#f59e0b"},{l:"Remaining",v:fmt(Math.max(0,ev.budget-spent)),c:"#10b981"}].map(({l,v,c})=>(
-                          <div key={l} style={{background:"rgba(255,255,255,0.04)",borderRadius:9,padding:"9px 10px",textAlign:"center"}}>
-                            <div style={{fontSize:14,fontWeight:800,color:c||"#fff"}}>{v}</div>
-                            <div style={{fontSize:10,color:"rgba(255,255,255,0.3)",marginTop:2}}>{l}</div>
-                          </div>
-                        ))}
-                      </div>
-                      {evEntries.length>0&&(
-                        <div style={{marginBottom:14}}>
-                          <div style={{fontSize:10,color:"rgba(255,255,255,0.3)",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:7}}>Sub-category breakdown</div>
-                          {Object.entries(evEntries.reduce((a,e)=>{const k=e.subCategory||"Other";a[k]=(a[k]||0)+e.amount;return a;},{})).map(([sub,amt])=>(
-                            <div key={sub} style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"rgba(255,255,255,0.5)",marginBottom:4}}>
-                              <span>{sub}</span><span style={{color:"#d946ef",fontWeight:700}}>{fmt(amt)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      <div style={{display:"flex",gap:8}}>
-                      <button onClick={()=>{setFEvent(ev.id);setView("dashboard");}} style={{flex:1,background:"rgba(217,70,239,0.08)",border:"1px solid rgba(217,70,239,0.22)",color:"#d946ef",borderRadius:10,padding:"9px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-                        <Icon n="eye" s={13}/>View Transactions
-                      </button>
-                      {isTreasurer&&(
-                        <button onClick={()=>setConfirmDeleteEv(ev)} title="Delete event" style={{flexShrink:0,background:"rgba(239,68,68,0.07)",border:"1px solid rgba(239,68,68,0.25)",color:"#ef4444",borderRadius:10,padding:"9px 13px",fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",justifyContent:"center"}}>
-                          <Icon n="trash" s={14}/>
-                        </button>
-                      )}
-                      </div>
-                    </div>
-                  );
-                })}
+                {events.map(ev=>(
+                  <EventCard
+                    key={ev.id}
+                    ev={ev}
+                    evSpend={evSpend}
+                    entries={entries}
+                    isTreasurer={isTreasurer}
+                    fmt={fmt}
+                    onViewTxns={()=>{setFEvent(ev.id);setView("dashboard");}}
+                    onDelete={()=>setConfirmDeleteEv(ev)}
+                    onToggle={()=>toggleEvent(ev.id)}
+                  />
+                ))}
               </div>
             )}
           </div>
-        </div>
         )}
         {/* ════ MEMBERS BALANCE SHEET ════ */}
         {view==="members" && (
@@ -4116,24 +4057,18 @@ export default function App() {
         </div>
       )}
       {showBulk&&<BulkImportModal members={members} events={events} entries={entries} verifiedMember={verifiedMember} onImport={handleBulkImport} onClose={()=>setShowBulk(false)}/>}
-      {showPin&&<PinModal onSuccess={(pin, cb)=>{
+      {showPin&&<PinModal onSuccess={(pin,cb)=>{
         if(!treasurerPin){
           addLog("PIN auth failed — PIN not loaded from DB","error");
           showToast("PIN not set — please connect to the database first","error");
-          setShowPin(false);
-          cb&&cb(false);
-          return;
+          setShowPin(false); cb&&cb(false); return;
         }
         if(pin===treasurerPin){
           addLog("PIN auth success — treasurer unlocked","ok");
-          setIsTreasurer(true);
-          setView(pendingView||"dashboard");
-          setShowPin(false);
-          showToast("🔓 Treasurer view unlocked","success");
-          cb&&cb(true);
+          setIsTreasurer(true);setView(pendingView||"dashboard");setShowPin(false);
+          showToast("🔓 Treasurer view unlocked","success"); cb&&cb(true);
         } else {
-          addLog("PIN auth failed — wrong PIN entered","warn");
-          // Do NOT close modal — let it track attempts and lock out at 5
+          addLog("PIN auth failed — wrong PIN","warn");
           cb&&cb(false);
         }
       }} onClose={()=>setShowPin(false)}/>}
