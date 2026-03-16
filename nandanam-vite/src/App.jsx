@@ -602,7 +602,7 @@ function BulkImportModal({members, events, entries: existingEntries, verifiedMem
               letterSpacing:"0.09em",marginBottom:14}}>
               ① Setup Template
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr auto auto",gap:12,alignItems:"flex-end",flexWrap:"wrap"}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10,alignItems:"flex-end"}}>
 
               {/* Member */}
               <div>
@@ -709,185 +709,282 @@ function BulkImportModal({members, events, entries: existingEntries, verifiedMem
                 </div>
               </div>
 
-              <div style={{overflowX:"auto"}}>
-                <table style={{width:"100%",borderCollapse:"collapse",minWidth:900}}>
-                  <thead>
-                    <tr style={{borderBottom:"1px solid rgba(99,102,241,0.25)"}}>
-                      {["","#","Date","Amount (₹)","Vendor / UPI","Purpose","Category","📸 UPI","🧾 Bill","⚠ Dup","Actions"].map(h=>(
-                        <th key={h} style={{padding:"8px 8px",textAlign:"left",fontSize:9,fontWeight:800,
-                          color:"rgba(129,140,248,0.55)",textTransform:"uppercase",letterSpacing:"0.08em",
-                          whiteSpace:"nowrap"}}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((row, rowIdx) => {
-                      const dup  = checkDup(row, rowIdx);
-                      const cat  = catByCode(row.categoryCode);
-                      const rowBg = dup?.level==="hard" && !row.overrideDup
-                        ? "rgba(239,68,68,0.07)"
-                        : dup?.level==="soft" && !row.overrideDup
-                          ? "rgba(245,158,11,0.05)"
-                          : "transparent";
-                      const rowBorder = dup?.level==="hard" && !row.overrideDup
-                        ? "2px solid rgba(239,68,68,0.5)"
-                        : "2px solid transparent";
+              {/* Mobile: card per row. Desktop: table. Breakpoint at 640px via window check */}
+              {typeof window !== "undefined" && window.innerWidth < 640 ? (
+                /* ── MOBILE CARD LAYOUT ── */
+                <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                  {rows.map((row, rowIdx) => {
+                    const dup = checkDup(row, rowIdx);
+                    const cat = catByCode(row.categoryCode);
+                    const cardBorder = dup?.level==="hard"&&!row.overrideDup
+                      ? "1.5px solid rgba(239,68,68,0.5)"
+                      : dup?.level==="soft"&&!row.overrideDup
+                        ? "1.5px solid rgba(245,158,11,0.4)"
+                        : "1px solid rgba(99,102,241,0.2)";
+                    return (
+                      <div key={row._id} style={{background:dup&&!row.overrideDup?"rgba(239,68,68,0.04)":"rgba(99,102,241,0.04)",
+                        border:cardBorder,borderRadius:14,padding:"14px 14px 10px",
+                        opacity:row.checked?1:0.5,transition:"all 0.15s"}}>
 
-                      return (
-                        <tr key={row._id} style={{borderBottom:"1px solid rgba(255,255,255,0.04)",
-                          background:rowBg,borderLeft:rowBorder,
-                          opacity:row.checked?1:0.4,transition:"all 0.15s"}}>
+                        {/* Card header: # + checkbox + actions */}
+                        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                          <input type="checkbox" checked={row.checked}
+                            onChange={e=>updateRow(row._id,"checked",e.target.checked)}
+                            style={{width:16,height:16,accentColor:"#818cf8",cursor:"pointer",flexShrink:0}}/>
+                          <span style={{fontSize:11,color:"rgba(255,255,255,0.25)",fontWeight:700}}>Row {rowIdx+1}</span>
+                          <div style={{flex:1}}/>
+                          <button type="button" onClick={()=>cloneRow(row)}
+                            style={{background:"rgba(99,102,241,0.12)",border:"1px solid rgba(99,102,241,0.3)",
+                              color:"#818cf8",borderRadius:7,padding:"5px 10px",cursor:"pointer",
+                              fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>⧉ Clone</button>
+                          <button type="button" onClick={()=>removeRow(row._id)}
+                            style={{background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.2)",
+                              color:"#ef4444",borderRadius:7,padding:"5px 8px",cursor:"pointer",
+                              fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>✕</button>
+                        </div>
 
-                          {/* Checkbox */}
-                          <td style={{padding:"7px 8px",width:24}}>
-                            <input type="checkbox" checked={row.checked}
-                              onChange={e=>updateRow(row._id,"checked",e.target.checked)}
-                              style={{width:14,height:14,accentColor:"#818cf8",cursor:"pointer"}}/>
-                          </td>
-
-                          {/* Row number */}
-                          <td style={{padding:"7px 6px",fontSize:11,color:"rgba(255,255,255,0.2)",
-                            fontWeight:700,width:24,textAlign:"center"}}>{rowIdx+1}</td>
-
-                          {/* Date */}
-                          <td style={{padding:"7px 5px"}}>
+                        {/* Date + Amount row */}
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+                          <div>
+                            <label style={{fontSize:9,fontWeight:700,color:"rgba(255,255,255,0.35)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Date</label>
                             <input type="date" value={row.date}
                               onChange={e=>updateRow(row._id,"date",e.target.value)}
-                              style={{...INP,padding:"5px 7px",fontSize:12,width:130}}/>
-                          </td>
-
-                          {/* Amount */}
-                          <td style={{padding:"7px 5px"}}>
+                              style={{...INP,width:"100%",padding:"8px 10px",fontSize:13,boxSizing:"border-box"}}/>
+                          </div>
+                          <div>
+                            <label style={{fontSize:9,fontWeight:700,color:"rgba(255,255,255,0.35)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Amount (₹)</label>
                             <input type="number" value={row.amount} placeholder="0"
                               onChange={e=>updateRow(row._id,"amount",e.target.value)}
-                              style={{...INP,padding:"5px 7px",fontSize:13,width:88,
-                                fontWeight:800,color:"#fbbf24",
-                                borderColor:!row.amount?"rgba(239,68,68,0.4)":undefined}}/>
-                          </td>
+                              style={{...INP,width:"100%",padding:"8px 10px",fontSize:15,fontWeight:800,
+                                color:"#fbbf24",boxSizing:"border-box",
+                                borderColor:!row.amount?"rgba(239,68,68,0.5)":undefined}}/>
+                          </div>
+                        </div>
 
-                          {/* Vendor / UPI */}
-                          <td style={{padding:"7px 5px"}}>
-                            <input value={row.upiId}
-                              onChange={e=>updateRow(row._id,"upiId",e.target.value)}
-                              placeholder="Vendor / UPI ID"
-                              style={{...INP,padding:"5px 7px",fontSize:12,width:140}}/>
-                          </td>
+                        {/* Vendor */}
+                        <div style={{marginBottom:8}}>
+                          <label style={{fontSize:9,fontWeight:700,color:"rgba(255,255,255,0.35)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Vendor / UPI</label>
+                          <input value={row.upiId} onChange={e=>updateRow(row._id,"upiId",e.target.value)}
+                            placeholder="Vendor / UPI ID"
+                            style={{...INP,width:"100%",padding:"8px 10px",fontSize:13,boxSizing:"border-box"}}/>
+                        </div>
 
-                          {/* Purpose */}
-                          <td style={{padding:"7px 5px"}}>
-                            <input value={row.purpose}
-                              onChange={e=>updateRow(row._id,"purpose",e.target.value)}
-                              placeholder="Purpose"
-                              style={{...INP,padding:"5px 7px",fontSize:12,width:155}}/>
-                          </td>
+                        {/* Purpose */}
+                        <div style={{marginBottom:8}}>
+                          <label style={{fontSize:9,fontWeight:700,color:"rgba(255,255,255,0.35)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Purpose</label>
+                          <input value={row.purpose} onChange={e=>updateRow(row._id,"purpose",e.target.value)}
+                            placeholder="What was this for?"
+                            style={{...INP,width:"100%",padding:"8px 10px",fontSize:13,boxSizing:"border-box"}}/>
+                        </div>
 
-                          {/* Category */}
-                          <td style={{padding:"7px 5px"}}>
-                            <select value={row.categoryCode}
-                              onChange={e=>updateRow(row._id,"categoryCode",e.target.value)}
-                              style={{...INP,padding:"5px 7px",fontSize:11,width:130,
-                                color:cat.color,borderColor:`${cat.color}40`}}>
-                              {CATEGORIES.map(c=><option key={c.code} value={c.code}>{c.icon} {c.label}</option>)}
-                            </select>
-                          </td>
+                        {/* Category */}
+                        <div style={{marginBottom:10}}>
+                          <label style={{fontSize:9,fontWeight:700,color:"rgba(255,255,255,0.35)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Category</label>
+                          <select value={row.categoryCode} onChange={e=>updateRow(row._id,"categoryCode",e.target.value)}
+                            style={{...INP,width:"100%",padding:"8px 10px",fontSize:13,
+                              color:cat.color,borderColor:`${cat.color}40`,boxSizing:"border-box"}}>
+                            {CATEGORIES.map(c=><option key={c.code} value={c.code}>{c.icon} {c.label}</option>)}
+                          </select>
+                        </div>
 
-                          {/* UPI Screenshot */}
-                          <td style={{padding:"7px 5px",width:60}}>
-                            <label style={{cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
-                              {row.receiptDataUrl ? (
-                                <div style={{position:"relative"}}>
-                                  <img src={row.receiptDataUrl} alt="upi"
-                                    style={{width:34,height:34,objectFit:"cover",borderRadius:5,
-                                      border:"1.5px solid rgba(16,185,129,0.5)"}}/>
-                                  <button type="button" onClick={e=>{e.preventDefault();updateRow(row._id,"receiptDataUrl",null);}}
-                                    style={{position:"absolute",top:-5,right:-5,background:"#ef4444",border:"none",
-                                      color:"#fff",borderRadius:"50%",width:14,height:14,cursor:"pointer",
-                                      fontSize:9,display:"flex",alignItems:"center",justifyContent:"center",
-                                      lineHeight:1,padding:0}}>✕</button>
-                                </div>
-                              ) : (
-                                <div style={{background:"rgba(16,185,129,0.07)",
-                                  border:"1.5px dashed rgba(16,185,129,0.3)",borderRadius:7,
-                                  padding:"5px",fontSize:16,color:"rgba(16,185,129,0.6)"}}>📸</div>
-                              )}
-                              <input type="file" accept="image/*" style={{display:"none"}}
-                                onChange={e=>e.target.files[0]&&attachFile(row._id,"receiptDataUrl",e.target.files[0])}/>
-                            </label>
-                          </td>
-
-                          {/* Bill / Invoice */}
-                          <td style={{padding:"7px 5px",width:60}}>
-                            <label style={{cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
-                              {row.invoiceDataUrl ? (
-                                <div style={{position:"relative"}}>
-                                  <img src={row.invoiceDataUrl} alt="bill"
-                                    style={{width:34,height:34,objectFit:"cover",borderRadius:5,
-                                      border:"1.5px solid rgba(139,92,246,0.5)"}}/>
-                                  <button type="button" onClick={e=>{e.preventDefault();updateRow(row._id,"invoiceDataUrl",null);}}
-                                    style={{position:"absolute",top:-5,right:-5,background:"#ef4444",border:"none",
-                                      color:"#fff",borderRadius:"50%",width:14,height:14,cursor:"pointer",
-                                      fontSize:9,display:"flex",alignItems:"center",justifyContent:"center",
-                                      lineHeight:1,padding:0}}>✕</button>
-                                </div>
-                              ) : (
-                                <div style={{background:"rgba(139,92,246,0.07)",
-                                  border:"1.5px dashed rgba(139,92,246,0.3)",borderRadius:7,
-                                  padding:"5px",fontSize:16,color:"rgba(139,92,246,0.6)"}}>🧾</div>
-                              )}
-                              <input type="file" accept="image/*,application/pdf" style={{display:"none"}}
-                                onChange={e=>e.target.files[0]&&attachFile(row._id,"invoiceDataUrl",e.target.files[0])}/>
-                            </label>
-                          </td>
-
-                          {/* Dup indicator */}
-                          <td style={{padding:"7px 5px",width:80}}>
-                            {dup ? (
-                              <div>
-                                <div style={{fontSize:10,fontWeight:700,
-                                  color:dup.level==="hard"?"#ef4444":dup.level==="soft"?"#f59e0b":"#fbbf24",
-                                  lineHeight:1.4,maxWidth:90,whiteSpace:"normal"}}>
-                                  {dup.level==="hard"?"🔴":dup.level==="soft"?"🟡":"🟠"} {dup.msg}
-                                </div>
-                                {(dup.level==="hard"||dup.level==="soft")&&(
-                                  <label style={{display:"flex",alignItems:"center",gap:3,marginTop:4,cursor:"pointer"}}>
-                                    <input type="checkbox" checked={row.overrideDup||false}
-                                      onChange={e=>updateRow(row._id,"overrideDup",e.target.checked)}
-                                      style={{accentColor:"#f59e0b",width:11,height:11}}/>
-                                    <span style={{fontSize:9,color:"rgba(255,255,255,0.4)",fontWeight:600}}>
-                                      Override
-                                    </span>
-                                  </label>
-                                )}
+                        {/* Attachments row */}
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+                          <label style={{cursor:"pointer"}}>
+                            <div style={{fontSize:9,fontWeight:700,color:"rgba(255,255,255,0.35)",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>📸 UPI Screenshot</div>
+                            {row.receiptDataUrl ? (
+                              <div style={{position:"relative",display:"inline-block"}}>
+                                <img src={row.receiptDataUrl} alt="upi"
+                                  style={{width:"100%",maxHeight:70,objectFit:"cover",borderRadius:8,
+                                    border:"1.5px solid rgba(16,185,129,0.5)"}}/>
+                                <button type="button" onClick={e=>{e.preventDefault();updateRow(row._id,"receiptDataUrl",null);}}
+                                  style={{position:"absolute",top:-6,right:-6,background:"#ef4444",border:"none",
+                                    color:"#fff",borderRadius:"50%",width:18,height:18,cursor:"pointer",
+                                    fontSize:10,display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>✕</button>
                               </div>
                             ) : (
-                              row.amount ? (
-                                <span style={{fontSize:11,color:"rgba(16,185,129,0.6)",fontWeight:700}}>✓ Clear</span>
-                              ) : (
-                                <span style={{fontSize:11,color:"rgba(255,255,255,0.15)"}}>—</span>
-                              )
+                              <div style={{background:"rgba(16,185,129,0.07)",border:"1.5px dashed rgba(16,185,129,0.3)",
+                                borderRadius:9,padding:"12px 8px",textAlign:"center",
+                                fontSize:22,color:"rgba(16,185,129,0.6)"}}>📸</div>
                             )}
-                          </td>
+                            <input type="file" accept="image/*" capture="environment" style={{display:"none"}}
+                              onChange={e=>e.target.files[0]&&attachFile(row._id,"receiptDataUrl",e.target.files[0])}/>
+                          </label>
+                          <label style={{cursor:"pointer"}}>
+                            <div style={{fontSize:9,fontWeight:700,color:"rgba(255,255,255,0.35)",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>🧾 Bill / Invoice</div>
+                            {row.invoiceDataUrl ? (
+                              <div style={{position:"relative",display:"inline-block"}}>
+                                <img src={row.invoiceDataUrl} alt="bill"
+                                  style={{width:"100%",maxHeight:70,objectFit:"cover",borderRadius:8,
+                                    border:"1.5px solid rgba(139,92,246,0.5)"}}/>
+                                <button type="button" onClick={e=>{e.preventDefault();updateRow(row._id,"invoiceDataUrl",null);}}
+                                  style={{position:"absolute",top:-6,right:-6,background:"#ef4444",border:"none",
+                                    color:"#fff",borderRadius:"50%",width:18,height:18,cursor:"pointer",
+                                    fontSize:10,display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>✕</button>
+                              </div>
+                            ) : (
+                              <div style={{background:"rgba(139,92,246,0.07)",border:"1.5px dashed rgba(139,92,246,0.3)",
+                                borderRadius:9,padding:"12px 8px",textAlign:"center",
+                                fontSize:22,color:"rgba(139,92,246,0.6)"}}>🧾</div>
+                            )}
+                            <input type="file" accept="image/*,application/pdf" style={{display:"none"}}
+                              onChange={e=>e.target.files[0]&&attachFile(row._id,"invoiceDataUrl",e.target.files[0])}/>
+                          </label>
+                        </div>
 
-                          {/* Actions: Clone + Remove */}
-                          <td style={{padding:"7px 6px",whiteSpace:"nowrap"}}>
-                            <div style={{display:"flex",gap:4}}>
-                              <button type="button" onClick={()=>cloneRow(row)} title="Clone this row"
-                                style={{background:"rgba(99,102,241,0.1)",border:"1px solid rgba(99,102,241,0.3)",
-                                  color:"#818cf8",borderRadius:6,padding:"4px 7px",cursor:"pointer",
-                                  fontSize:12,fontFamily:"'DM Sans',sans-serif",fontWeight:700}}
-                                title="Clone row (same vendor, new date/amount)">⧉</button>
-                              <button type="button" onClick={()=>removeRow(row._id)} title="Remove row"
-                                style={{background:"rgba(239,68,68,0.07)",border:"1px solid rgba(239,68,68,0.2)",
-                                  color:"#ef4444",borderRadius:6,padding:"4px 7px",cursor:"pointer",
-                                  fontSize:12,fontFamily:"'DM Sans',sans-serif",fontWeight:700}}>✕</button>
+                        {/* Dup warning on card */}
+                        {dup&&(
+                          <div style={{background:dup.level==="hard"?"rgba(239,68,68,0.1)":"rgba(245,158,11,0.08)",
+                            border:`1px solid ${dup.level==="hard"?"rgba(239,68,68,0.4)":"rgba(245,158,11,0.3)"}`,
+                            borderRadius:8,padding:"8px 11px"}}>
+                            <div style={{fontSize:11,fontWeight:700,
+                              color:dup.level==="hard"?"#ef4444":dup.level==="soft"?"#f59e0b":"#fbbf24",
+                              marginBottom:dup.level!=="warn"?5:0}}>
+                              {dup.level==="hard"?"🔴":dup.level==="soft"?"🟡":"🟠"} {dup.msg}
                             </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                            {(dup.level==="hard"||dup.level==="soft")&&(
+                              <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}>
+                                <input type="checkbox" checked={row.overrideDup||false}
+                                  onChange={e=>updateRow(row._id,"overrideDup",e.target.checked)}
+                                  style={{accentColor:"#f59e0b",width:13,height:13}}/>
+                                <span style={{fontSize:11,color:"rgba(255,255,255,0.5)",fontWeight:600}}>
+                                  Override — this is intentional
+                                </span>
+                              </label>
+                            )}
+                          </div>
+                        )}
+                        {!dup&&row.amount&&(
+                          <div style={{fontSize:10,color:"rgba(16,185,129,0.6)",fontWeight:700}}>✓ No duplicates found</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                /* ── DESKTOP TABLE LAYOUT ── */
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",minWidth:900}}>
+                    <thead>
+                      <tr style={{borderBottom:"1px solid rgba(99,102,241,0.25)"}}>
+                        {["","#","Date","Amount (₹)","Vendor / UPI","Purpose","Category","📸 UPI","🧾 Bill","⚠ Dup","Actions"].map(h=>(
+                          <th key={h} style={{padding:"8px 8px",textAlign:"left",fontSize:9,fontWeight:800,
+                            color:"rgba(129,140,248,0.55)",textTransform:"uppercase",letterSpacing:"0.08em",
+                            whiteSpace:"nowrap"}}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((row, rowIdx) => {
+                        const dup  = checkDup(row, rowIdx);
+                        const cat  = catByCode(row.categoryCode);
+                        const rowBg = dup?.level==="hard" && !row.overrideDup
+                          ? "rgba(239,68,68,0.07)"
+                          : dup?.level==="soft" && !row.overrideDup
+                            ? "rgba(245,158,11,0.05)"
+                            : "transparent";
+                        const rowBorder = dup?.level==="hard" && !row.overrideDup
+                          ? "2px solid rgba(239,68,68,0.5)"
+                          : "2px solid transparent";
+
+                        return (
+                          <tr key={row._id} style={{borderBottom:"1px solid rgba(255,255,255,0.04)",
+                            background:rowBg,borderLeft:rowBorder,
+                            opacity:row.checked?1:0.4,transition:"all 0.15s"}}>
+                            <td style={{padding:"7px 8px",width:24}}>
+                              <input type="checkbox" checked={row.checked}
+                                onChange={e=>updateRow(row._id,"checked",e.target.checked)}
+                                style={{width:14,height:14,accentColor:"#818cf8",cursor:"pointer"}}/>
+                            </td>
+                            <td style={{padding:"7px 6px",fontSize:11,color:"rgba(255,255,255,0.2)",fontWeight:700,width:24,textAlign:"center"}}>{rowIdx+1}</td>
+                            <td style={{padding:"7px 5px"}}>
+                              <input type="date" value={row.date} onChange={e=>updateRow(row._id,"date",e.target.value)}
+                                style={{...INP,padding:"5px 7px",fontSize:12,width:130}}/>
+                            </td>
+                            <td style={{padding:"7px 5px"}}>
+                              <input type="number" value={row.amount} placeholder="0"
+                                onChange={e=>updateRow(row._id,"amount",e.target.value)}
+                                style={{...INP,padding:"5px 7px",fontSize:13,width:88,fontWeight:800,color:"#fbbf24",
+                                  borderColor:!row.amount?"rgba(239,68,68,0.4)":undefined}}/>
+                            </td>
+                            <td style={{padding:"7px 5px"}}>
+                              <input value={row.upiId} onChange={e=>updateRow(row._id,"upiId",e.target.value)}
+                                placeholder="Vendor / UPI ID"
+                                style={{...INP,padding:"5px 7px",fontSize:12,width:140}}/>
+                            </td>
+                            <td style={{padding:"7px 5px"}}>
+                              <input value={row.purpose} onChange={e=>updateRow(row._id,"purpose",e.target.value)}
+                                placeholder="Purpose"
+                                style={{...INP,padding:"5px 7px",fontSize:12,width:155}}/>
+                            </td>
+                            <td style={{padding:"7px 5px"}}>
+                              <select value={row.categoryCode} onChange={e=>updateRow(row._id,"categoryCode",e.target.value)}
+                                style={{...INP,padding:"5px 7px",fontSize:11,width:130,color:cat.color,borderColor:`${cat.color}40`}}>
+                                {CATEGORIES.map(c=><option key={c.code} value={c.code}>{c.icon} {c.label}</option>)}
+                              </select>
+                            </td>
+                            <td style={{padding:"7px 5px",width:60}}>
+                              <label style={{cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                {row.receiptDataUrl ? (
+                                  <div style={{position:"relative"}}>
+                                    <img src={row.receiptDataUrl} alt="upi" style={{width:34,height:34,objectFit:"cover",borderRadius:5,border:"1.5px solid rgba(16,185,129,0.5)"}}/>
+                                    <button type="button" onClick={e=>{e.preventDefault();updateRow(row._id,"receiptDataUrl",null);}}
+                                      style={{position:"absolute",top:-5,right:-5,background:"#ef4444",border:"none",color:"#fff",borderRadius:"50%",width:14,height:14,cursor:"pointer",fontSize:9,display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1,padding:0}}>✕</button>
+                                  </div>
+                                ) : (
+                                  <div style={{background:"rgba(16,185,129,0.07)",border:"1.5px dashed rgba(16,185,129,0.3)",borderRadius:7,padding:"5px",fontSize:16,color:"rgba(16,185,129,0.6)"}}>📸</div>
+                                )}
+                                <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>e.target.files[0]&&attachFile(row._id,"receiptDataUrl",e.target.files[0])}/>
+                              </label>
+                            </td>
+                            <td style={{padding:"7px 5px",width:60}}>
+                              <label style={{cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                {row.invoiceDataUrl ? (
+                                  <div style={{position:"relative"}}>
+                                    <img src={row.invoiceDataUrl} alt="bill" style={{width:34,height:34,objectFit:"cover",borderRadius:5,border:"1.5px solid rgba(139,92,246,0.5)"}}/>
+                                    <button type="button" onClick={e=>{e.preventDefault();updateRow(row._id,"invoiceDataUrl",null);}}
+                                      style={{position:"absolute",top:-5,right:-5,background:"#ef4444",border:"none",color:"#fff",borderRadius:"50%",width:14,height:14,cursor:"pointer",fontSize:9,display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1,padding:0}}>✕</button>
+                                  </div>
+                                ) : (
+                                  <div style={{background:"rgba(139,92,246,0.07)",border:"1.5px dashed rgba(139,92,246,0.3)",borderRadius:7,padding:"5px",fontSize:16,color:"rgba(139,92,246,0.6)"}}>🧾</div>
+                                )}
+                                <input type="file" accept="image/*,application/pdf" style={{display:"none"}} onChange={e=>e.target.files[0]&&attachFile(row._id,"invoiceDataUrl",e.target.files[0])}/>
+                              </label>
+                            </td>
+                            <td style={{padding:"7px 5px",width:80}}>
+                              {dup ? (
+                                <div>
+                                  <div style={{fontSize:10,fontWeight:700,color:dup.level==="hard"?"#ef4444":dup.level==="soft"?"#f59e0b":"#fbbf24",lineHeight:1.4,maxWidth:90,whiteSpace:"normal"}}>
+                                    {dup.level==="hard"?"🔴":dup.level==="soft"?"🟡":"🟠"} {dup.msg}
+                                  </div>
+                                  {(dup.level==="hard"||dup.level==="soft")&&(
+                                    <label style={{display:"flex",alignItems:"center",gap:3,marginTop:4,cursor:"pointer"}}>
+                                      <input type="checkbox" checked={row.overrideDup||false}
+                                        onChange={e=>updateRow(row._id,"overrideDup",e.target.checked)}
+                                        style={{accentColor:"#f59e0b",width:11,height:11}}/>
+                                      <span style={{fontSize:9,color:"rgba(255,255,255,0.4)",fontWeight:600}}>Override</span>
+                                    </label>
+                                  )}
+                                </div>
+                              ) : (
+                                row.amount ? <span style={{fontSize:11,color:"rgba(16,185,129,0.6)",fontWeight:700}}>✓ Clear</span>
+                                           : <span style={{fontSize:11,color:"rgba(255,255,255,0.15)"}}>—</span>
+                              )}
+                            </td>
+                            <td style={{padding:"7px 6px",whiteSpace:"nowrap"}}>
+                              <div style={{display:"flex",gap:4}}>
+                                <button type="button" onClick={()=>cloneRow(row)}
+                                  style={{background:"rgba(99,102,241,0.1)",border:"1px solid rgba(99,102,241,0.3)",color:"#818cf8",borderRadius:6,padding:"4px 7px",cursor:"pointer",fontSize:12,fontFamily:"'DM Sans',sans-serif",fontWeight:700}}>⧉</button>
+                                <button type="button" onClick={()=>removeRow(row._id)}
+                                  style={{background:"rgba(239,68,68,0.07)",border:"1px solid rgba(239,68,68,0.2)",color:"#ef4444",borderRadius:6,padding:"4px 7px",cursor:"pointer",fontSize:12,fontFamily:"'DM Sans',sans-serif",fontWeight:700}}>✕</button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
 
               {/* Dup legend */}
               <div style={{display:"flex",gap:10,marginTop:12,flexWrap:"wrap"}}>
@@ -2967,10 +3064,9 @@ export default function App() {
             </div>
           </div>
           <div style={{display:"flex",gap:2,alignItems:"center"}}>
-            {[["submit","Submit","wall"],["txns","Transactions","eye"],["dashboard","Treasurer","bar"],["events","Events","star"],["members","Members","user"]].map(([v,l,i])=>(
+            {[["submit","Submit","wall"],["dashboard","Treasurer","bar"],["events","Events","star"],["members","Members","user"]].map(([v,l,i])=>(
               <button key={v} className="nt nav-btn" onClick={()=>{
                 if((v==="dashboard"||v==="events"||v==="members")&&!isTreasurer){setPendingView(v);setShowPin(true);}
-                else if(v==="txns"&&!verifiedMember){setPendingView("txns");setShowMemberPin(true);}
                 else setView(v);
               }} style={{background:"none",border:"none",borderBottom:`2px solid ${view===v?"#fbbf24":"transparent"}`,color:view===v?"#fbbf24":"rgba(255,255,255,0.45)",padding:"8px 15px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:view===v?700:500,fontSize:13,display:"flex",alignItems:"center",gap:6,position:"relative"}}>
                 <Icon n={i} s={14}/><span className="nav-label">{l}</span>
@@ -2999,10 +3095,18 @@ export default function App() {
                 🔒 Lock
               </button>
             )}
-            <button onClick={()=>setShowSheets(true)} style={{marginLeft:6,background:dbReady?"rgba(16,185,129,0.1)":"rgba(251,191,36,0.08)",border:`1px solid ${dbReady?"rgba(16,185,129,0.3)":"rgba(251,191,36,0.25)"}`,color:dbReady?"#10b981":"#fbbf24",borderRadius:10,padding:"7px 13px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,display:"flex",alignItems:"center",gap:6}}>
-              <Icon n="sht" s={13}/>
-              {syncStatus==="syncing"?<><Spin/>Syncing</>:syncStatus==="ok"?"✓ Saved":syncStatus==="fail"?"⚠ Sync fail":dbReady?"● DB Live":"Connect DB"}
-            </button>
+            {isTreasurer&&(
+              <button onClick={()=>setShowSheets(true)} style={{marginLeft:6,background:dbReady?"rgba(16,185,129,0.1)":"rgba(251,191,36,0.08)",border:`1px solid ${dbReady?"rgba(16,185,129,0.3)":"rgba(251,191,36,0.25)"}`,color:dbReady?"#10b981":"#fbbf24",borderRadius:10,padding:"7px 13px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,display:"flex",alignItems:"center",gap:6}}>
+                <Icon n="sht" s={13}/>
+                {syncStatus==="syncing"?<><Spin/>Syncing</>:syncStatus==="ok"?"✓ Saved":syncStatus==="fail"?"⚠ Sync fail":dbReady?"● DB Live":"Connect DB"}
+              </button>
+            )}
+            {/* Sync status indicator for members — no connect button, just shows sync state */}
+            {!isTreasurer&&syncStatus&&(
+              <div style={{marginLeft:6,background:syncStatus==="ok"?"rgba(16,185,129,0.08)":syncStatus==="fail"?"rgba(239,68,68,0.08)":"rgba(255,255,255,0.05)",border:`1px solid ${syncStatus==="ok"?"rgba(16,185,129,0.25)":syncStatus==="fail"?"rgba(239,68,68,0.25)":"rgba(255,255,255,0.1)"}`,color:syncStatus==="ok"?"#10b981":syncStatus==="fail"?"#ef4444":"rgba(255,255,255,0.4)",borderRadius:10,padding:"7px 13px",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:6,fontFamily:"'DM Sans',sans-serif"}}>
+                {syncStatus==="syncing"?<><Spin/>Syncing</>:syncStatus==="ok"?"✓ Saved":"⚠ Sync fail"}
+              </div>
+            )}
             <button onClick={()=>setShowDebug(v=>!v)} title="Debug Log" style={{marginLeft:4,background:debugLog.some(l=>l.level==="error")?"rgba(239,68,68,0.15)":"rgba(255,255,255,0.05)",border:`1px solid ${debugLog.some(l=>l.level==="error")?"rgba(239,68,68,0.4)":"rgba(255,255,255,0.1)"}`,color:debugLog.some(l=>l.level==="error")?"#ef4444":"rgba(255,255,255,0.4)",borderRadius:10,padding:"7px 10px",cursor:"pointer",fontSize:12,fontFamily:"'DM Sans',sans-serif",fontWeight:600,display:"flex",alignItems:"center",gap:5,position:"relative"}}>
               🪲
               {debugLog.filter(l=>l.level==="error").length>0&&<span style={{background:"#ef4444",color:"#fff",borderRadius:10,fontSize:9,fontWeight:800,padding:"1px 5px"}}>{debugLog.filter(l=>l.level==="error").length}</span>}
@@ -3014,17 +3118,12 @@ export default function App() {
       <div className="content-wrap" style={{maxWidth:1100,margin:"0 auto",padding:"30px 24px"}}>
 
         {/* ════ SUBMIT ════ */}
-        {(view==="submit"||view==="txns") && !verifiedMember && (
+        {view==="submit" && !verifiedMember && (
           <MemberPinModal
             members={members}
             memberPins={memberPins}
             onSavePin={handleSaveMemberPin}
-            onSuccess={name=>{
-              setVerifiedMember(name);
-              setForm(f=>({...f,member:name}));
-              // If member was navigating to Transactions tab, go there
-              if(pendingView==="txns"){setView("txns");setPendingView(null);}
-            }}
+            onSuccess={name=>{setVerifiedMember(name);setForm(f=>({...f,member:name}));}}
             onClose={()=>setView("submit")}
           />
         )}
@@ -3289,6 +3388,27 @@ export default function App() {
                   {submitting?<><Spin/>Submitting...</>:<><Icon n="plus" s={17}/>Submit Expense</>}
                 </button>
               </div>
+            </div>
+
+            {/* ── Inline Transactions Panel — visible once member is verified ── */}
+            <div style={{marginTop:32}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+                <div style={{flex:1,height:1,background:"rgba(255,255,255,0.07)"}}/>
+                <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.25)",
+                  textTransform:"uppercase",letterSpacing:"0.09em"}}>Community Transactions</span>
+                <div style={{flex:1,height:1,background:"rgba(255,255,255,0.07)"}}/>
+              </div>
+              <TxnsView
+                entries={entries}
+                events={events}
+                verifiedMember={verifiedMember}
+                isTreasurer={isTreasurer}
+                isTreasurerMember={isTreasurerMember}
+                onViewReceipt={(entry)=>{
+                  if(entry.receiptUrl) setViewingReceipt({txnId:entry.txnId,driveUrl:entry.receiptUrl,dataUrl:entry.receiptDataUrl||null});
+                  else if(entry.receiptDataUrl) setViewingReceipt({txnId:entry.txnId,dataUrl:entry.receiptDataUrl});
+                }}
+              />
             </div>
           </div>
         )}
@@ -3827,21 +3947,6 @@ export default function App() {
           </div>
         )}
         {/* ════ MEMBERS BALANCE SHEET ════ */}
-        {/* ════ TRANSACTIONS — member read-only view ════ */}
-        {view==="txns" && verifiedMember && (
-          <TxnsView
-            entries={entries}
-            events={events}
-            verifiedMember={verifiedMember}
-            isTreasurer={isTreasurer}
-            isTreasurerMember={isTreasurerMember}
-            onViewReceipt={(entry)=>{
-              if(entry.receiptUrl) setViewingReceipt({txnId:entry.txnId,driveUrl:entry.receiptUrl,dataUrl:entry.receiptDataUrl||null});
-              else if(entry.receiptDataUrl) setViewingReceipt({txnId:entry.txnId,dataUrl:entry.receiptDataUrl});
-            }}
-          />
-        )}
-
         {view==="members" && (
           <MemberBalanceSheet
             entries={entries}
