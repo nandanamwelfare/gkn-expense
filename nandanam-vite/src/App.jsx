@@ -2238,7 +2238,7 @@ export default function App() {
   const [receiptKey,setReceiptKey] = useState(0);
   const resetReceiptInput = ()=>setReceiptKey(k=>k+1);
   const [receiptDataUrl,setReceiptDataUrl] = useState(null); // staged receipt for current form
-  const [viewingReceipt,setViewingReceipt] = useState(null); // {txnId, dataUrl} for lightbox
+  const [viewingReceipt,setViewingReceipt] = useState(null); // full entry object for dual-panel viewer
 
   // Field-level validation errors
   const [fieldErrors,setFieldErrors] = useState({});
@@ -3384,8 +3384,7 @@ export default function App() {
               isTreasurer={isTreasurer}
               isTreasurerMember={isTreasurerMember}
               onViewReceipt={(entry)=>{
-                if(entry.receiptUrl) setViewingReceipt({txnId:entry.txnId,driveUrl:entry.receiptUrl,dataUrl:entry.receiptDataUrl||null});
-                else if(entry.receiptDataUrl) setViewingReceipt({txnId:entry.txnId,dataUrl:entry.receiptDataUrl});
+                setViewingReceipt(entry);
               }}
             />
           </div>
@@ -3653,15 +3652,14 @@ export default function App() {
                         </td>
                         <td style={{padding:"12px 15px",fontSize:15,fontWeight:800,color:isRecurring?"#c4b5fd":"#fff",whiteSpace:"nowrap"}}>{fmt(e.amount)}</td>
                         <td style={{padding:"8px 10px",textAlign:"center"}}>
-                          {e.receiptUrl?(
-                            // Permanent Drive receipt
-                            <a href={e.receiptUrl} target="_blank" rel="noopener noreferrer" title="View Receipt in Google Drive" style={{background:"rgba(16,185,129,0.12)",border:"1px solid rgba(16,185,129,0.3)",color:"#10b981",borderRadius:7,padding:"4px 8px",cursor:"pointer",fontSize:13,lineHeight:1,textDecoration:"none",display:"inline-flex",alignItems:"center",gap:3}}>
-                              📎<span style={{fontSize:9,opacity:0.7}}>Drive</span>
-                            </a>
-                          ):e.receiptDataUrl?(
-                            // Local-only receipt (pending Drive upload or no DB)
-                            <button onClick={()=>setViewingReceipt({txnId:e.txnId,dataUrl:e.receiptDataUrl})} title="View Receipt (local only)" style={{background:"rgba(245,158,11,0.12)",border:"1px solid rgba(245,158,11,0.3)",color:"#f59e0b",borderRadius:7,padding:"4px 8px",cursor:"pointer",fontSize:13,lineHeight:1}}>
-                              📎<span style={{fontSize:9,opacity:0.7}}>local</span>
+                          {(e.receiptUrl||e.receiptDataUrl||e.invoiceUrl||e.invoiceDataUrl) ? (
+                            <button
+                              onClick={()=>setViewingReceipt(e)}
+                              title="View receipts"
+                              style={{background:"rgba(16,185,129,0.1)",border:"1px solid rgba(16,185,129,0.3)",color:"#10b981",borderRadius:7,padding:"4px 9px",cursor:"pointer",fontSize:12,lineHeight:1,display:"inline-flex",alignItems:"center",gap:4,fontWeight:700}}>
+                              📎
+                              {(e.receiptUrl||e.receiptDataUrl)&&<span style={{fontSize:9,opacity:0.8}}>Pay</span>}
+                              {(e.invoiceUrl||e.invoiceDataUrl)&&<span style={{fontSize:9,opacity:0.8,color:"#a78bfa"}}>Bill</span>}
                             </button>
                           ):(
                             <span style={{fontSize:11,color:"rgba(255,255,255,0.15)"}}>—</span>
@@ -3868,60 +3866,117 @@ export default function App() {
                 setTimeout(()=>setSyncStatus(null),3000);
               }
             }}
-            onViewReceipt={(entry)=>{if(entry.receiptUrl){setViewingReceipt({txnId:entry.txnId,driveUrl:entry.receiptUrl,dataUrl:entry.receiptDataUrl||null});}else if(entry.receiptDataUrl){setViewingReceipt({txnId:entry.txnId,dataUrl:entry.receiptDataUrl});}}}
+            onViewReceipt={(entry)=>setViewingReceipt(entry)}
           />
         )}
       </div>
 
         {/* Receipt Lightbox — Drive-aware: works with GKN-Receipts Drive URLs and local previews */}
-      {viewingReceipt&&(
-        <div onClick={()=>setViewingReceipt(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:2000,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:20,cursor:"zoom-out"}}>
-          <div onClick={e=>e.stopPropagation()} style={{background:"#0a1628",border:`1px solid ${viewingReceipt.driveUrl?"rgba(16,185,129,0.35)":"rgba(251,191,36,0.3)"}`,borderRadius:18,padding:20,maxWidth:680,width:"100%",boxShadow:"0 30px 80px rgba(0,0,0,0.8)"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-              <div>
-                <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:18,color:viewingReceipt.driveUrl?"#10b981":"#fbbf24"}}>
-                  📎 Receipt / Screenshot {viewingReceipt.driveUrl&&<span style={{fontSize:12,fontWeight:600,color:"rgba(16,185,129,0.7)",marginLeft:6}}>· GKN-Receipts</span>}
+      {viewingReceipt&&(()=>{
+        const vr = viewingReceipt;
+        // vr is the full entry object — has receiptUrl, receiptDataUrl, invoiceUrl, invoiceDataUrl, payType
+        const hasPayment = !!(vr.receiptUrl || vr.receiptDataUrl);
+        const hasInvoice  = !!(vr.invoiceUrl  || vr.invoiceDataUrl);
+        const isCash      = vr.payType === "cash";
+        const payLabel    = vr.payType === "cheque" ? "Cheque Image" : vr.payType === "netbanking" ? "Transfer Screenshot" : "UPI Screenshot";
+        const showBoth    = hasPayment && hasInvoice;
+        return (
+          <div onClick={()=>setViewingReceipt(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.93)",zIndex:2000,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"16px",cursor:"zoom-out",overflowY:"auto"}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:"#080f1e",border:"1px solid rgba(255,255,255,0.1)",borderRadius:20,padding:20,width:"100%",maxWidth:showBoth?1100:600,boxShadow:"0 30px 80px rgba(0,0,0,0.9)",cursor:"default"}}>
+
+              {/* Header */}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:18}}>
+                <div>
+                  <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:20,color:"#fbbf24",fontWeight:700}}>
+                    🔍 Verify & Reimburse
+                  </div>
+                  <div style={{fontFamily:"monospace",fontSize:12,color:"rgba(255,255,255,0.4)",marginTop:3}}>
+                    {vr.txnId} · {vr.member} · {fmt(vr.amount)}
+                    {vr.payType && <span style={{marginLeft:8,background:"rgba(255,255,255,0.07)",borderRadius:5,padding:"1px 7px",fontSize:11,color:"rgba(255,255,255,0.5)",fontFamily:"'DM Sans',sans-serif",textTransform:"uppercase"}}>{vr.payType}</span>}
+                  </div>
                 </div>
-                <div style={{fontFamily:"monospace",fontSize:12,color:"rgba(255,255,255,0.4)",marginTop:2}}>{viewingReceipt.txnId}</div>
-                {viewingReceipt.driveUrl&&!viewingReceipt.dataUrl&&(
-                  <div style={{fontSize:11,color:"rgba(16,185,129,0.7)",marginTop:3}}>✅ Stored in GKN-Receipts drive folder</div>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  {vr.status==="Pending" && (
+                    <button onClick={()=>{toggleStatus(vr.id);setViewingReceipt(null);}} style={{background:"linear-gradient(135deg,#059669,#10b981)",color:"#fff",border:"none",borderRadius:10,padding:"9px 18px",fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:6}}>
+                      ✅ Mark Reimbursed
+                    </button>
+                  )}
+                  <button onClick={()=>setViewingReceipt(null)} style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",color:"rgba(255,255,255,0.5)",borderRadius:9,padding:"8px 11px",cursor:"pointer"}}>
+                    <Icon n="x" s={15}/>
+                  </button>
+                </div>
+              </div>
+
+              {/* Dual panel grid */}
+              <div style={{display:"grid",gridTemplateColumns:showBoth?"1fr 1fr":"1fr",gap:16}}>
+
+                {/* Panel 1: Payment proof (UPI/Cheque/Transfer) — hidden for Cash */}
+                {!isCash && (
+                  <div style={{background:"rgba(16,185,129,0.05)",border:"1px solid rgba(16,185,129,0.2)",borderRadius:14,overflow:"hidden"}}>
+                    <div style={{padding:"10px 14px",background:"rgba(16,185,129,0.1)",borderBottom:"1px solid rgba(16,185,129,0.15)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <span style={{fontSize:12,fontWeight:800,color:"#10b981",textTransform:"uppercase",letterSpacing:"0.06em"}}>💳 {payLabel}</span>
+                      {vr.receiptUrl && (
+                        <a href={vr.receiptUrl} target="_blank" rel="noopener noreferrer" style={{fontSize:11,color:"#10b981",textDecoration:"none",fontWeight:700,opacity:0.8}}>🔗 Drive</a>
+                      )}
+                    </div>
+                    <div style={{padding:12,minHeight:200,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      {vr.receiptUrl && !vr.receiptDataUrl ? (
+                        <div style={{textAlign:"center",padding:"20px 10px"}}>
+                          <div style={{fontSize:36,marginBottom:10}}>🗂️</div>
+                          <div style={{color:"#10b981",fontWeight:700,fontSize:13,marginBottom:6}}>Stored in GKN-Receipts</div>
+                          <a href={vr.receiptUrl} target="_blank" rel="noopener noreferrer" style={{background:"rgba(16,185,129,0.15)",border:"1px solid rgba(16,185,129,0.3)",color:"#10b981",borderRadius:9,padding:"8px 16px",fontSize:12,fontWeight:700,textDecoration:"none",display:"inline-flex",alignItems:"center",gap:5}}>
+                            🔗 Open in Drive
+                          </a>
+                        </div>
+                      ) : vr.receiptDataUrl ? (
+                        <img src={vr.receiptDataUrl} alt="payment proof" style={{width:"100%",maxHeight:"60vh",objectFit:"contain",borderRadius:8}}/>
+                      ) : (
+                        <div style={{color:"rgba(255,255,255,0.2)",fontSize:13,textAlign:"center",padding:20}}>No payment screenshot attached</div>
+                      )}
+                    </div>
+                  </div>
                 )}
-                {viewingReceipt.driveUrl&&viewingReceipt.dataUrl&&(
-                  <div style={{fontSize:11,color:"#f59e0b",marginTop:3}}>Showing local copy — <a href={viewingReceipt.driveUrl} target="_blank" rel="noopener noreferrer" style={{color:"#10b981"}}>open Drive original</a></div>
+
+                {/* Panel 2: Invoice / Vendor Bill */}
+                {(hasInvoice || !isCash) && (
+                  <div style={{background:"rgba(139,92,246,0.05)",border:"1px solid rgba(139,92,246,0.2)",borderRadius:14,overflow:"hidden"}}>
+                    <div style={{padding:"10px 14px",background:"rgba(139,92,246,0.1)",borderBottom:"1px solid rgba(139,92,246,0.15)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <span style={{fontSize:12,fontWeight:800,color:"#a78bfa",textTransform:"uppercase",letterSpacing:"0.06em"}}>📄 Invoice / Vendor Bill</span>
+                      {vr.invoiceUrl && (
+                        <a href={vr.invoiceUrl} target="_blank" rel="noopener noreferrer" style={{fontSize:11,color:"#a78bfa",textDecoration:"none",fontWeight:700,opacity:0.8}}>🔗 Drive</a>
+                      )}
+                    </div>
+                    <div style={{padding:12,minHeight:200,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      {vr.invoiceUrl && !vr.invoiceDataUrl ? (
+                        <div style={{textAlign:"center",padding:"20px 10px"}}>
+                          <div style={{fontSize:36,marginBottom:10}}>📁</div>
+                          <div style={{color:"#a78bfa",fontWeight:700,fontSize:13,marginBottom:6}}>Stored in GKN-Receipts</div>
+                          <a href={vr.invoiceUrl} target="_blank" rel="noopener noreferrer" style={{background:"rgba(139,92,246,0.15)",border:"1px solid rgba(139,92,246,0.3)",color:"#a78bfa",borderRadius:9,padding:"8px 16px",fontSize:12,fontWeight:700,textDecoration:"none",display:"inline-flex",alignItems:"center",gap:5}}>
+                            🔗 Open in Drive
+                          </a>
+                        </div>
+                      ) : vr.invoiceDataUrl ? (
+                        <img src={vr.invoiceDataUrl} alt="invoice" style={{width:"100%",maxHeight:"60vh",objectFit:"contain",borderRadius:8}}/>
+                      ) : (
+                        <div style={{color:"rgba(255,255,255,0.2)",fontSize:13,textAlign:"center",padding:20}}>No invoice / vendor bill attached</div>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
-              <div style={{display:"flex",gap:8}}>
-                {viewingReceipt.driveUrl&&(
-                  <a href={viewingReceipt.driveUrl} target="_blank" rel="noopener noreferrer" style={{background:"rgba(16,185,129,0.12)",border:"1px solid rgba(16,185,129,0.3)",color:"#10b981",borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:700,textDecoration:"none",display:"flex",alignItems:"center",gap:5}}>
-                    🔗 Open in Drive
-                  </a>
-                )}
-                {viewingReceipt.dataUrl&&!viewingReceipt.driveUrl&&(
-                  <a href={viewingReceipt.dataUrl} download={`receipt-${viewingReceipt.txnId}.jpg`} style={{background:"rgba(16,185,129,0.12)",border:"1px solid rgba(16,185,129,0.3)",color:"#10b981",borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:700,textDecoration:"none",display:"flex",alignItems:"center",gap:5}}>
-                    <Icon n="dl" s={13}/>Download
-                  </a>
-                )}
-                <button onClick={()=>setViewingReceipt(null)} style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",color:"rgba(255,255,255,0.5)",borderRadius:9,padding:"7px 10px",cursor:"pointer"}}>
-                  <Icon n="x" s={15}/>
-                </button>
-              </div>
+
+              {/* Cash-only panel (no payment screenshot) */}
+              {isCash && !hasInvoice && (
+                <div style={{textAlign:"center",padding:"30px 20px",color:"rgba(255,255,255,0.2)",fontSize:13}}>
+                  No attachments for this cash entry
+                </div>
+              )}
+
+              <div style={{textAlign:"center",fontSize:11,color:"rgba(255,255,255,0.15)",marginTop:14}}>Click outside or × to close</div>
             </div>
-            {viewingReceipt.driveUrl&&!viewingReceipt.dataUrl?(
-              <div style={{textAlign:"center",padding:"30px 20px",background:"rgba(16,185,129,0.05)",borderRadius:12,border:"1px solid rgba(16,185,129,0.15)"}}>
-                <div style={{fontSize:40,marginBottom:12}}>🗂️</div>
-                <div style={{color:"#10b981",fontWeight:700,fontSize:14,marginBottom:6}}>Receipt stored in GKN-Receipts</div>
-                <div style={{color:"rgba(255,255,255,0.4)",fontSize:12,marginBottom:16}}>This receipt is saved permanently in your Google Drive folder.</div>
-                <a href={viewingReceipt.driveUrl} target="_blank" rel="noopener noreferrer" style={{background:"linear-gradient(135deg,#059669,#10b981)",color:"#fff",borderRadius:10,padding:"10px 20px",fontSize:13,fontWeight:800,textDecoration:"none",display:"inline-flex",alignItems:"center",gap:6}}>
-                  🔗 Open Receipt in Google Drive
-                </a>
-              </div>
-            ):(
-              <img src={viewingReceipt.dataUrl} alt="receipt" style={{width:"100%",maxHeight:"70vh",objectFit:"contain",borderRadius:10,border:"1px solid rgba(255,255,255,0.08)"}}/>
-            )}
-            <div style={{textAlign:"center",fontSize:11,color:"rgba(255,255,255,0.2)",marginTop:10}}>Click outside or × to close</div>
           </div>
-        </div>
-      )}
+        );
+      })()}
       {showSheets&&<ScriptModal current={scriptUrl} onSave={url=>{
         setScriptUrl(url);
         try{localStorage.setItem("nandanam_script_url",url);}catch{}
