@@ -1,7 +1,7 @@
 {
-  "name": "nandanam-v20",
+  "name": "nandanam-v25",
   "private": true,
-  "version": "20.1.0",
+  "version": "25.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -15,5 +15,6 @@
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
     "vite": "^5.4.2"
-  }
+  },
+  "description": "Gokul's Nandanam Welfare Association \u2014 Expense Manager v25"
 }

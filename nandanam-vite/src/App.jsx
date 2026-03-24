@@ -1,3 +1,6 @@
+// Nandanam Expense Manager v25.0 — Gokul's Nandanam Welfare Association
+// Built: 2026-03-19
+
 import { useState, useEffect, useRef } from "react";
 
 // ── Responsive breakpoints ───────────────────────────────────────────
@@ -1316,17 +1319,31 @@ function PinModal({onSuccess,onClose}) {
 /* ═══════════════════════════════════════════════════════════
    MEMBER MANAGEMENT PANEL
 ═══════════════════════════════════════════════════════════ */
-function MemberPanel({members,onAdd,onRemove,onClose}) {
-  const [newName,setNewName] = useState("");
-  const [removing,setRemoving] = useState(null);
+/* ═══════════════════════════════════════════════════════════
+   MEMBER MANAGEMENT PANEL
+═══════════════════════════════════════════════════════════ */
+function MemberPanel({members, memberPins, onAdd, onRemove, onResetPin, onClose}) {
+  const [newName,   setNewName]   = useState("");
+  const [removing,  setRemoving]  = useState(null);
+  const [resetting, setResetting] = useState(null);  // member name being reset
+  const [resetDone, setResetDone] = useState(null);  // member name just reset
   const INP={width:"100%",padding:"10px 14px",borderRadius:10,border:"1.5px solid rgba(255,255,255,0.12)",background:"rgba(255,255,255,0.06)",color:"#fff",fontSize:14,fontFamily:"'DM Sans',sans-serif",outline:"none",boxSizing:"border-box"};
+
+  const handleResetPin = async (name) => {
+    setResetting(name);
+    await onResetPin(name);
+    setResetting(null);
+    setResetDone(name);
+    setTimeout(()=>setResetDone(null), 3000);
+  };
+
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.80)",zIndex:1100,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-      <div style={{background:"#0a1628",border:"1px solid rgba(16,185,129,0.3)",borderRadius:22,padding:32,width:"100%",maxWidth:480,boxShadow:"0 24px 80px rgba(0,0,0,0.7)",maxHeight:"85vh",display:"flex",flexDirection:"column"}}>
+      <div style={{background:"#0a1628",border:"1px solid rgba(16,185,129,0.3)",borderRadius:22,padding:32,width:"100%",maxWidth:520,boxShadow:"0 24px 80px rgba(0,0,0,0.7)",maxHeight:"85vh",display:"flex",flexDirection:"column",position:"relative"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:22,flexShrink:0}}>
           <div>
             <h3 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,color:"#10b981",margin:0}}>👥 Member Management</h3>
-            <p style={{color:"rgba(255,255,255,0.35)",fontSize:12,margin:"4px 0 0"}}>{members.length} active members</p>
+            <p style={{color:"rgba(255,255,255,0.35)",fontSize:12,margin:"4px 0 0"}}>{members.length} active members · Reset PIN clears it so member sets a new one on next login</p>
           </div>
           <button onClick={onClose} style={{background:"none",border:"none",color:"rgba(255,255,255,0.4)",cursor:"pointer"}}><Icon n="x" s={18}/></button>
         </div>
@@ -1335,16 +1352,12 @@ function MemberPanel({members,onAdd,onRemove,onClose}) {
         <div style={{background:"rgba(16,185,129,0.07)",border:"1px solid rgba(16,185,129,0.2)",borderRadius:12,padding:16,marginBottom:20,flexShrink:0}}>
           <div style={{fontSize:11,fontWeight:700,color:"rgba(16,185,129,0.8)",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>Add New Member</div>
           <div style={{display:"flex",gap:8}}>
-            <input
-              value={newName} onChange={e=>setNewName(e.target.value)}
+            <input value={newName} onChange={e=>setNewName(e.target.value)}
               onKeyDown={e=>{if(e.key==="Enter"&&newName.trim()){onAdd(newName.trim());setNewName("");}}}
-              placeholder="Full name (e.g. Rajesh Kumar)" style={{...INP,flex:1,padding:"9px 13px",fontSize:13}}
-            />
-            <button
-              onClick={()=>{if(newName.trim()){onAdd(newName.trim());setNewName("");}}}
+              placeholder="Full name (e.g. Rajesh Kumar)" style={{...INP,flex:1,padding:"9px 13px",fontSize:13}}/>
+            <button onClick={()=>{if(newName.trim()){onAdd(newName.trim());setNewName("");}}}
               disabled={!newName.trim()}
-              style={{background:newName.trim()?"linear-gradient(135deg,#059669,#10b981)":"rgba(255,255,255,0.06)",color:newName.trim()?"#fff":"rgba(255,255,255,0.3)",border:"none",borderRadius:10,padding:"9px 18px",cursor:newName.trim()?"pointer":"default",fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}
-            >
+              style={{background:newName.trim()?"linear-gradient(135deg,#059669,#10b981)":"rgba(255,255,255,0.06)",color:newName.trim()?"#fff":"rgba(255,255,255,0.3)",border:"none",borderRadius:10,padding:"9px 18px",cursor:newName.trim()?"pointer":"default",fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}>
               <Icon n="plus" s={14}/>Add
             </button>
           </div>
@@ -1354,23 +1367,51 @@ function MemberPanel({members,onAdd,onRemove,onClose}) {
         <div style={{overflowY:"auto",flex:1}}>
           {members.length===0?(
             <div style={{textAlign:"center",padding:"40px 20px",color:"rgba(255,255,255,0.2)"}}>No members yet. Add one above.</div>
-          ):members.map((m,i)=>(
-            <div key={i} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 4px",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
-              <div style={{width:36,height:36,borderRadius:"50%",background:"linear-gradient(135deg,#1d4ed8,#3b82f6)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800,flexShrink:0}}>
-                {m.split(" ").map(w=>w[0]).slice(0,2).join("")}
+          ):members.map((m,i)=>{
+            const hasPin   = !!(memberPins&&memberPins[m]);
+            const isReset  = resetting===m;
+            const justDone = resetDone===m;
+            return (
+              <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 4px",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
+                {/* Avatar */}
+                <div style={{width:36,height:36,borderRadius:"50%",background:"linear-gradient(135deg,#1d4ed8,#3b82f6)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800,flexShrink:0}}>
+                  {m.split(" ").map(w=>w[0]).slice(0,2).join("")}
+                </div>
+                {/* Name */}
+                <span style={{flex:1,fontSize:14,color:"rgba(255,255,255,0.85)",fontWeight:500}}>{m}</span>
+                {/* PIN status badge */}
+                <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:10,
+                  background:hasPin?"rgba(16,185,129,0.12)":"rgba(245,158,11,0.1)",
+                  color:hasPin?"#10b981":"#f59e0b",
+                  border:`1px solid ${hasPin?"rgba(16,185,129,0.3)":"rgba(245,158,11,0.3)"}`,
+                  whiteSpace:"nowrap"}}>
+                  {hasPin?"🔐 PIN set":"⚠ No PIN"}
+                </span>
+                {/* Reset PIN button */}
+                {hasPin&&(
+                  <button onClick={()=>handleResetPin(m)} disabled={isReset}
+                    style={{background:justDone?"rgba(16,185,129,0.15)":"rgba(245,158,11,0.08)",
+                      border:`1px solid ${justDone?"rgba(16,185,129,0.35)":"rgba(245,158,11,0.25)"}`,
+                      color:justDone?"#10b981":"#f59e0b",borderRadius:8,
+                      padding:"5px 10px",cursor:isReset?"default":"pointer",
+                      fontSize:11,fontFamily:"'DM Sans',sans-serif",fontWeight:700,
+                      whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,
+                      opacity:isReset?0.6:1}}>
+                    {isReset?<><div style={{width:10,height:10,border:"1.5px solid rgba(245,158,11,0.3)",borderTopColor:"#f59e0b",borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/>...</>
+                      :justDone?"✓ Reset":"🔑 Reset PIN"}
+                  </button>
+                )}
+                {/* Remove button */}
+                <button onClick={()=>setRemoving(m)}
+                  style={{background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.2)",color:"#ef4444",borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:12,fontFamily:"'DM Sans',sans-serif",fontWeight:600,display:"flex",alignItems:"center",gap:4}}>
+                  <Icon n="x" s={12}/>Remove
+                </button>
               </div>
-              <span style={{flex:1,fontSize:14,color:"rgba(255,255,255,0.85)",fontWeight:500}}>{m}</span>
-              <button
-                onClick={()=>setRemoving(m)}
-                style={{background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.2)",color:"#ef4444",borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:12,fontFamily:"'DM Sans',sans-serif",fontWeight:600,display:"flex",alignItems:"center",gap:4}}
-              >
-                <Icon n="x" s={12}/>Remove
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
-        {/* Confirm remove */}
+        {/* Confirm remove overlay */}
         {removing&&(
           <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.7)",borderRadius:22,display:"flex",alignItems:"center",justifyContent:"center",padding:30}}>
             <div style={{background:"#0f2040",border:"1px solid rgba(239,68,68,0.4)",borderRadius:16,padding:28,textAlign:"center",maxWidth:300}}>
@@ -1856,6 +1897,222 @@ function BreakdownPanel({catItems, memberItems, totalAmt, fmt}) {
 }
 
 /* ═══════════════════════════════════════════════════════════
+   BANK BALANCE TRACKER
+   Shows opening/closing balance per month for the year.
+   Treasurer can edit; members view only.
+   Closing = Opening − total expenses for that month.
+═══════════════════════════════════════════════════════════ */
+function BankTracker({entries, bankBalances, bankYear, setBankYear, bankAccount, isTreasurer, onSave, fmt}) {
+  const MONTHS_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const MONTHS_FULL  = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const [editingCell, setEditingCell] = React.useState(null); // {month, field}
+  const [editVal, setEditVal]         = React.useState("");
+
+  // Compute total expenses per month for the selected year
+  function monthExpenses(mIdx) {
+    return entries
+      .filter(function(e){
+        var d = new Date(e.date);
+        return d.getFullYear() === bankYear && d.getMonth() === mIdx;
+      })
+      .reduce(function(s,e){ return s + e.amount; }, 0);
+  }
+
+  function getBalance(mIdx, field) {
+    var yData = bankBalances[String(bankYear)];
+    if (!yData) return null;
+    var mData = yData[String(mIdx)];
+    if (!mData) return null;
+    return mData[field] != null ? mData[field] : null;
+  }
+
+  function startEdit(mIdx, field, currentVal) {
+    if (!isTreasurer) return;
+    setEditingCell({month:mIdx, field});
+    setEditVal(currentVal != null ? String(currentVal) : "");
+  }
+
+  function commitEdit() {
+    if (!editingCell) return;
+    onSave(bankYear, editingCell.month, editingCell.field, editVal);
+    setEditingCell(null);
+    setEditVal("");
+  }
+
+  function handleKey(e) {
+    if (e.key === "Enter") commitEdit();
+    if (e.key === "Escape") { setEditingCell(null); setEditVal(""); }
+  }
+
+  // Year totals
+  var yearExpenses = 0;
+  for (var mi = 0; mi < 12; mi++) { yearExpenses += monthExpenses(mi); }
+  var yearOpen  = getBalance(0,  "open");
+  var yearClose = getBalance(11, "close");
+
+  function BalanceCell(props) {
+    var mIdx  = props.mIdx;
+    var field = props.field;
+    var color = props.color;
+    var val   = getBalance(mIdx, field);
+    var isEditing = editingCell && editingCell.month === mIdx && editingCell.field === field;
+    if (isEditing) {
+      return (
+        <td style={{padding:"8px 12px",textAlign:"right"}}>
+          <input
+            autoFocus
+            type="number"
+            value={editVal}
+            onChange={function(e){ setEditVal(e.target.value); }}
+            onBlur={commitEdit}
+            onKeyDown={handleKey}
+            style={{width:110,background:"rgba(251,191,36,0.1)",border:"1.5px solid rgba(251,191,36,0.5)",borderRadius:7,padding:"5px 8px",color:"#fbbf24",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:700,textAlign:"right",outline:"none"}}
+          />
+        </td>
+      );
+    }
+    return (
+      <td
+        onClick={function(){ startEdit(mIdx, field, val); }}
+        style={{padding:"8px 12px",textAlign:"right",cursor:isTreasurer?"text":"default",borderRadius:6,transition:"background 0.15s"}}
+        title={isTreasurer ? "Click to edit" : ""}
+      >
+        {val != null ? (
+          <span style={{fontSize:13,fontWeight:800,color:color,fontFamily:"'DM Sans',sans-serif"}}>
+            {fmt(val)}
+            {isTreasurer && <span style={{fontSize:9,opacity:0.4,marginLeft:4}}>✏</span>}
+          </span>
+        ) : (
+          <span style={{fontSize:12,color:"rgba(255,255,255,0.2)"}}>
+            {isTreasurer ? "— click to set" : "—"}
+          </span>
+        )}
+      </td>
+    );
+  }
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:24,flexWrap:"wrap",gap:12}}>
+        <div>
+          <h2 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:28,color:"#10b981",margin:0}}>🏦 Bank Balance Tracker</h2>
+          <p style={{color:"rgba(255,255,255,0.35)",fontSize:13,margin:"4px 0 0"}}>{bankAccount} · Monthly opening & closing balance</p>
+        </div>
+        {/* Year selector */}
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <button onClick={function(){setBankYear(bankYear-1);}} style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",color:"rgba(255,255,255,0.5)",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:14,fontWeight:700}}>‹</button>
+          <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:16,fontWeight:800,color:"#fff",minWidth:50,textAlign:"center"}}>{bankYear}</span>
+          <button onClick={function(){setBankYear(bankYear+1);}} style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",color:"rgba(255,255,255,0.5)",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:14,fontWeight:700}}>›</button>
+        </div>
+      </div>
+
+      {/* Year summary strip */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:22}}>
+        <div style={{background:"rgba(16,185,129,0.07)",border:"1px solid rgba(16,185,129,0.2)",borderRadius:14,padding:"14px 18px"}}>
+          <div style={{fontSize:10,fontWeight:700,color:"rgba(16,185,129,0.7)",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>Year Opening Balance</div>
+          <div style={{fontSize:22,fontWeight:800,color:"#10b981",fontFamily:"'DM Sans',sans-serif"}}>{yearOpen != null ? fmt(yearOpen) : "—"}</div>
+          <div style={{fontSize:11,color:"rgba(255,255,255,0.3)",marginTop:2}}>Jan {bankYear}</div>
+        </div>
+        <div style={{background:"rgba(239,68,68,0.07)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:14,padding:"14px 18px"}}>
+          <div style={{fontSize:10,fontWeight:700,color:"rgba(239,68,68,0.7)",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>Total Expenses {bankYear}</div>
+          <div style={{fontSize:22,fontWeight:800,color:"#f87171",fontFamily:"'DM Sans',sans-serif"}}>{fmt(yearExpenses)}</div>
+          <div style={{fontSize:11,color:"rgba(255,255,255,0.3)",marginTop:2}}>All recorded expenses</div>
+        </div>
+        <div style={{background:"rgba(251,191,36,0.07)",border:"1px solid rgba(251,191,36,0.2)",borderRadius:14,padding:"14px 18px"}}>
+          <div style={{fontSize:10,fontWeight:700,color:"rgba(251,191,36,0.7)",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>Year Closing Balance</div>
+          <div style={{fontSize:22,fontWeight:800,color:"#fbbf24",fontFamily:"'DM Sans',sans-serif"}}>{yearClose != null ? fmt(yearClose) : "—"}</div>
+          <div style={{fontSize:11,color:"rgba(255,255,255,0.3)",marginTop:2}}>Dec {bankYear}</div>
+        </div>
+      </div>
+
+      {/* Treasurer hint */}
+      {isTreasurer && (
+        <div style={{background:"rgba(251,191,36,0.06)",border:"1px solid rgba(251,191,36,0.15)",borderRadius:10,padding:"9px 16px",marginBottom:18,fontSize:12,color:"rgba(251,191,36,0.7)",display:"flex",alignItems:"center",gap:8}}>
+          ✏️ Click any <strong>Opening</strong> or <strong>Closing</strong> cell to enter the balance. Expenses are auto-calculated from submitted entries.
+        </div>
+      )}
+
+      {/* Monthly table */}
+      <div style={{background:"rgba(255,255,255,0.02)",borderRadius:16,border:"1px solid rgba(255,255,255,0.06)",overflowX:"auto"}} className="tbl-wrap">
+        <table style={{width:"100%",borderCollapse:"collapse",minWidth:640}}>
+          <thead>
+            <tr style={{borderBottom:"1px solid rgba(16,185,129,0.2)"}}>
+              {["Month","Opening Balance","Expenses (recorded)","Closing Balance","Variance"].map(function(h){
+                return <th key={h} style={{padding:"11px 14px",textAlign:h==="Month"?"left":"right",fontSize:10,fontWeight:700,color:"rgba(16,185,129,0.6)",textTransform:"uppercase",letterSpacing:"0.07em",whiteSpace:"nowrap"}}>{h}</th>;
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {MONTHS_FULL.map(function(monthName, mIdx){
+              var expenses = monthExpenses(mIdx);
+              var opening  = getBalance(mIdx, "open");
+              var closing  = getBalance(mIdx, "close");
+              var isCurrentMonth = mIdx === new Date().getMonth() && bankYear === new Date().getFullYear();
+              var isFuture = bankYear > new Date().getFullYear() ||
+                             (bankYear === new Date().getFullYear() && mIdx > new Date().getMonth());
+              // Variance: closing - (opening - expenses) = how much closing differs from expected
+              var expectedClose = opening != null ? opening - expenses : null;
+              var variance = (closing != null && expectedClose != null) ? closing - expectedClose : null;
+              return (
+                <tr key={mIdx} style={{
+                  borderBottom:"1px solid rgba(255,255,255,0.04)",
+                  background:isCurrentMonth?"rgba(16,185,129,0.05)":"transparent",
+                  opacity: isFuture ? 0.45 : 1,
+                }}>
+                  <td style={{padding:"10px 14px"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <div style={{width:6,height:6,borderRadius:"50%",background:isCurrentMonth?"#10b981":isFuture?"rgba(255,255,255,0.1)":"rgba(255,255,255,0.2)",flexShrink:0}}/>
+                      <span style={{fontSize:13,fontWeight:isCurrentMonth?800:500,color:isCurrentMonth?"#10b981":"rgba(255,255,255,0.7)"}}>
+                        {MONTHS_SHORT[mIdx]} {bankYear}
+                      </span>
+                      {isCurrentMonth && <span style={{fontSize:9,fontWeight:700,color:"#10b981",background:"rgba(16,185,129,0.15)",border:"1px solid rgba(16,185,129,0.3)",borderRadius:4,padding:"1px 5px",textTransform:"uppercase"}}>Current</span>}
+                    </div>
+                  </td>
+                  <BalanceCell mIdx={mIdx} field="open"  color="#10b981" />
+                  <td style={{padding:"8px 12px",textAlign:"right"}}>
+                    {expenses > 0 ? (
+                      <span style={{fontSize:13,fontWeight:700,color:"#f87171",fontFamily:"'DM Sans',sans-serif"}}>− {fmt(expenses)}</span>
+                    ) : (
+                      <span style={{fontSize:12,color:"rgba(255,255,255,0.2)"}}>—</span>
+                    )}
+                  </td>
+                  <BalanceCell mIdx={mIdx} field="close" color="#fbbf24" />
+                  <td style={{padding:"8px 12px",textAlign:"right"}}>
+                    {variance != null ? (
+                      <span style={{
+                        fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif",
+                        color: Math.abs(variance) < 1 ? "#10b981" : variance > 0 ? "#34d399" : "#f87171",
+                        background: Math.abs(variance) < 1 ? "rgba(16,185,129,0.1)" : variance > 0 ? "rgba(52,211,153,0.1)" : "rgba(248,113,113,0.1)",
+                        border: Math.abs(variance) < 1 ? "1px solid rgba(16,185,129,0.25)" : variance > 0 ? "1px solid rgba(52,211,153,0.25)" : "1px solid rgba(248,113,113,0.25)",
+                        borderRadius:6,padding:"2px 8px",
+                      }}>
+                        {Math.abs(variance) < 1 ? "✓ Balanced" : (variance > 0 ? "+" : "") + fmt(variance)}
+                      </span>
+                    ) : (
+                      <span style={{fontSize:11,color:"rgba(255,255,255,0.15)"}}>—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Legend */}
+      <div style={{marginTop:14,display:"flex",gap:20,flexWrap:"wrap",fontSize:11,color:"rgba(255,255,255,0.3)"}}>
+        <span>🟢 <strong style={{color:"rgba(16,185,129,0.7)"}}>Opening</strong> = balance at start of month</span>
+        <span>🔴 <strong style={{color:"rgba(248,113,113,0.7)"}}>Expenses</strong> = auto-summed from submitted entries</span>
+        <span>🟡 <strong style={{color:"rgba(251,191,36,0.7)"}}>Closing</strong> = balance at end of month (actual bank)</span>
+        <span>📊 <strong style={{color:"rgba(255,255,255,0.4)"}}>Variance</strong> = Closing − (Opening − Expenses)</span>
+      </div>
+    </div>
+  );
+}
+
+
+/* ═══════════════════════════════════════════════════════════
    MEMBER BALANCE SHEET
 ═══════════════════════════════════════════════════════════ */
 function MemberBalanceSheet({entries, members, treasurerMembers=[], onBatchReimburse, onViewReceipt}) {
@@ -2208,6 +2465,9 @@ export default function App() {
   const [showMemberPanel,setShowMemberPanel] = useState(false);
   const [showVendorPanel,setShowVendorPanel] = useState(false);
   const [groupedView,setGroupedView] = useState(false);
+  const [bankBalances,setBankBalances] = useState({}); // {"2026":{"0":{open:X,close:Y},...}}
+  const [bankYear,setBankYear]         = useState(new Date().getFullYear());
+  const [bankAccount]                  = useState("Nandanam Welfare Association"); // single account
 
   // Payment method: "upi" | "cash" | "cheque" | "netbanking"
   const [payType,setPayType] = useState("upi");
@@ -2292,10 +2552,9 @@ export default function App() {
         setCounters(d.counters||{});
         if(d.members&&d.members.length>0)setMembers(d.members);
         if(d.pin)setTreasurerPin(String(d.pin));
-        if(d.memberPins)setMemberPins(d.memberPins);
+        if(d.memberPins)setMemberPins(d.memberPins); // {name:"pin"} from Members tab
         if(d.treasurerMembers)setTreasurerMembers(d.treasurerMembers);
-        if(d.memberPins)setMemberPins(d.memberPins); // {name: "1234"} from Members tab
-        if(d.treasurerMembers)setTreasurerMembers(d.treasurerMembers);
+        if(d.bankBalances)setBankBalances(d.bankBalances);
         setDbReady(true);
         addLog(`✓ Loaded ${d.entries?.length||0} entries, ${d.events?.length||0} events, ${d.members?.length||0} members, PIN ${d.pin?"set":"NOT SET"}`, "ok");
       }else{
@@ -2569,6 +2828,17 @@ export default function App() {
     if(scriptUrl)await callScript("removeMember",{name});
   };
 
+  const saveBankBalance=async(year, monthIdx, field, value)=>{
+    const y = String(year);
+    const m = String(monthIdx);
+    const num = parseFloat(value.replace(/,/g,""))||0;
+    setBankBalances(prev=>{
+      const next = {...prev, [y]:{...prev[y], [m]:{...(prev[y]&&prev[y][m])||{}, [field]:num}}};
+      // Save to Sheets via callScript if connected
+      if(scriptUrl) callScript("setBankBalance",{year:y,month:m,field,value:num}).catch(()=>{});
+      return next;
+    });
+  };
   const handleSaveMemberPin=async(name, pin)=>{
     setMemberPins(p=>({...p,[name]:String(pin)}));
     if(scriptUrl){const r=await callScript("setMemberPin",{name,pin:String(pin)});if(!r.success)addLog("PIN save failed: "+r.error,"warn");}
@@ -3082,7 +3352,7 @@ export default function App() {
             </div>
           </div>
           <div style={{display:"flex",gap:2,alignItems:"center"}}>
-            {[["submit","Submit","wall"],["dashboard","Treasurer","bar"],["events","Events","star"],["members","Members","user"]].map(([v,l,i])=>(
+            {[["submit","Submit","wall"],["dashboard","Treasurer","bar"],["events","Events","star"],["members","Members","user"],["bank","Bank","trd"]].map(([v,l,i])=>(
               <button key={v} className="nt nav-btn" onClick={()=>{
                 if((v==="dashboard"||v==="events"||v==="members")&&!isTreasurer){setPendingView(v);setShowPin(true);}
                 else setView(v);
@@ -3850,7 +4120,21 @@ export default function App() {
             )}
           </div>
         )}
-        {/* ════ MEMBERS BALANCE SHEET ════ */}
+        {/* ════ BANK BALANCE TRACKER ════ */}
+        {view==="bank" && (
+          <BankTracker
+            entries={entries}
+            bankBalances={bankBalances}
+            bankYear={bankYear}
+            setBankYear={setBankYear}
+            bankAccount={bankAccount}
+            isTreasurer={isTreasurer}
+            onSave={saveBankBalance}
+            fmt={fmt}
+          />
+        )}
+
+                {/* ════ MEMBERS BALANCE SHEET ════ */}
         {view==="members" && (
           <MemberBalanceSheet
             entries={entries}
