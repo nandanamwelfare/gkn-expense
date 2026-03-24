@@ -2451,7 +2451,9 @@ export default function App() {
   const [syncStatus,setSyncStatus] = useState(null);
 
   // PIN + access control
-  const [isTreasurer,setIsTreasurer] = useState(false);
+  const [isTreasurer,setIsTreasurer] = useState(()=>{
+    try{ return sessionStorage.getItem("nandanam_treasurer")==="1"; }catch{return false;}
+  });
   const [showPin,setShowPin]         = useState(false);
   const [treasurerPin,setTreasurerPin] = useState(""); // loaded from Sheets — never hardcoded
   const [pendingView,setPendingView]  = useState(null);
@@ -3354,7 +3356,7 @@ export default function App() {
           <div style={{display:"flex",gap:2,alignItems:"center"}}>
             {[["submit","Submit","wall"],["dashboard","Treasurer","bar"],["events","Events","star"],["members","Members","user"],["bank","Bank","trd"]].map(([v,l,i])=>(
               <button key={v} className="nt nav-btn" onClick={()=>{
-                if((v==="dashboard"||v==="events"||v==="members")&&!isTreasurer){setPendingView(v);setShowPin(true);}
+                if((v==="dashboard"||v==="events"||v==="members"||v==="bank")&&!isTreasurer){setPendingView(v);setShowPin(true);}
                 else setView(v);
               }} style={{background:"none",border:"none",borderBottom:`2px solid ${view===v?"#fbbf24":"transparent"}`,color:view===v?"#fbbf24":"rgba(255,255,255,0.45)",padding:"8px 15px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:view===v?700:500,fontSize:13,display:"flex",alignItems:"center",gap:6,position:"relative"}}>
                 <Icon n={i} s={14}/><span className="nav-label">{l}</span>
@@ -3379,7 +3381,7 @@ export default function App() {
               </span>
             )}
             {isTreasurer&&(
-              <button onClick={()=>{setIsTreasurer(false);setView("submit");showToast("Locked — back to member view","info");}} style={{background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.2)",color:"#ef4444",borderRadius:10,padding:"7px 11px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,display:"flex",alignItems:"center",gap:5}}>
+              <button onClick={()=>{setIsTreasurer(false);try{sessionStorage.removeItem("nandanam_treasurer");}catch{}setView("submit");showToast("Locked — back to member view","info");}} style={{background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.2)",color:"#ef4444",borderRadius:10,padding:"7px 11px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,display:"flex",alignItems:"center",gap:5}}>
                 🔒 Lock
               </button>
             )}
@@ -3592,18 +3594,37 @@ export default function App() {
                 </div>
 
                 {/* Payment-type-specific fields */}
-                {payType==="upi"&&(
-                  <div>
-                    <label style={LBL}>Payee UPI ID</label>
-                    <input value={form.upiId} onChange={e=>setForm(f=>({...f,upiId:e.target.value}))} placeholder="Auto-extracted from screenshot" style={INP}/>
+                {/* Vendor selector — shown for all payment types */}
+                <div>
+                  <label style={LBL}>Vendor / Payee</label>
+                  <div style={{display:"flex",gap:8}}>
+                    <select
+                      value={form.upiId && vendors.includes(form.upiId) ? form.upiId : "__custom__"}
+                      onChange={e=>{
+                        if(e.target.value!=="__custom__") setForm(f=>({...f,upiId:e.target.value}));
+                        else setForm(f=>({...f,upiId:""}));
+                      }}
+                      style={{...INP,flex:1}}
+                    >
+                      <option value="__custom__">— Select vendor or type below —</option>
+                      {vendors.map(v=><option key={v} value={v}>{v}</option>)}
+                    </select>
                   </div>
+                  {/* Manual override input — always visible so user can type a new/custom vendor */}
+                  <input
+                    value={form.upiId}
+                    onChange={e=>setForm(f=>({...f,upiId:e.target.value}))}
+                    placeholder={payType==="upi"?"UPI ID or vendor name (auto-extracted from screenshot)":payType==="cash"?"Vendor / shop name":"Vendor / payee name"}
+                    style={{...INP,marginTop:6,fontSize:12,opacity:0.85}}
+                  />
+                </div>
+
+                {payType==="upi"&&(
+                  <div style={{display:"none"}}>{/* UPI field now merged with vendor above */}</div>
                 )}
 
                 {payType==="cash"&&(
-                  <div>
-                    <label style={LBL}>Paid To (optional)</label>
-                    <input value={form.upiId} onChange={e=>setForm(f=>({...f,upiId:e.target.value}))} placeholder="Vendor / shop name" style={INP}/>
-                  </div>
+                  <div style={{display:"none"}}>{/* cash paid-to now merged with vendor above */}</div>
                 )}
 
                 {payType==="cheque"&&(
@@ -4310,7 +4331,9 @@ export default function App() {
         }
         if(pin===treasurerPin){
           addLog("PIN auth success — treasurer unlocked","ok");
-          setIsTreasurer(true);setView(pendingView||"dashboard");setShowPin(false);
+          setIsTreasurer(true);
+          try{sessionStorage.setItem("nandanam_treasurer","1");}catch{}
+          setView(pendingView||"dashboard");setShowPin(false);
           showToast("🔓 Treasurer view unlocked","success"); cb&&cb(true);
         } else {
           addLog("PIN auth failed — wrong PIN","warn");
