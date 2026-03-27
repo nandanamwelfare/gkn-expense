@@ -94,6 +94,13 @@ Open the app → click **Connect DB** → paste your Apps Script URL → Save & 
 - `updateInvoiceUrl` helper for col P
 - `setMemberPin(name, pin)` — set or clear a member's PIN from the app
 
+### Frontend auth contract (current app)
+- The frontend should not receive raw `pin` or `memberPins` values in the bootstrap payload.
+- Preferred bootstrap field: `memberPinStatus` as `{ [memberName]: true|false }`.
+- Add secure actions: `verifyMemberPin`, `verifyTreasurerPin`.
+- Successful auth responses should return `success`, optional `member`, optional `role`, and an optional opaque `token`.
+- Privileged write actions should validate the supplied `auth.token` server-side instead of trusting browser state.
+
 ---
 
 ## Architecture
