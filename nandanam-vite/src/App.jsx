@@ -120,20 +120,35 @@ const EVENT_SUBCATS = [
   "Printing & Banners","Gifts & Prizes","Transport","Venue","Miscellaneous",
 ];
 
+const RECURRING_SUBCATS = [
+  "Electricity Bills - Block A",
+  "Electricity Bills - Block B",
+  "Electricity Bills - Block C",
+  "HWMS WATER Bill",
+  "Salaries",
+  "AMC",
+  "Fuel",
+  "Consumables",
+];
+
 /* ── Recurring expense definitions ── */
 const RECURRING_TYPES = [
-  { id:"salary",      label:"Salary / Staff",      icon:"👷",  color:"#f59e0b", keywords:["salary","salaries","wage","staff payment","guard pay","security pay","watchman"] },
+  { id:"salary",      label:"Salaries",            icon:"👷",  color:"#f59e0b", keywords:["salary","salaries","wage","staff payment","guard pay","security pay","watchman"] },
+  { id:"electricity", label:"Electricity Bills",   icon:"⚡",  color:"#f97316", keywords:["electricity bill","electricity bills","eb bill","mseb","bescom","power bill","current bill","electricity bills - block a","electricity bills - block b","electricity bills - block c"] },
+  { id:"water",       label:"HWMS WATER Bill",     icon:"💧",  color:"#3b82f6", keywords:["hwms water bill","water bill","tanker","borewell","water charges","municipality water"] },
+  { id:"fuel",        label:"Fuel",                icon:"⛽",  color:"#ef4444", keywords:["fuel","diesel","petrol","generator fuel"] },
+  { id:"consumables", label:"Consumables",         icon:"🧴",  color:"#10b981", keywords:["consumables","consumable","cleaning material","housekeeping material","consumable items"] },
   { id:"window",      label:"Window / Glass Cleaning",icon:"🪟",color:"#06b6d4", keywords:["window clean","glass clean","window wash","facade clean"] },
   { id:"amc",         label:"AMC / Service Contract",icon:"🔧",  color:"#8b5cf6", keywords:["amc","annual maintenance","service contract","maintenance contract"] },
-  { id:"water",       label:"Water / Tanker Bill",  icon:"💧",  color:"#3b82f6", keywords:["water bill","tanker","borewell","water charges","municipality water"] },
-  { id:"electricity", label:"Electricity Bill",     icon:"⚡",  color:"#f97316", keywords:["electricity bill","eb bill","mseb","bescom","power bill","current bill"] },
   { id:"internet",    label:"Internet / Cable",     icon:"📡",  color:"#10b981", keywords:["internet","broadband","wifi","cable tv","dth","dish tv"] },
   { id:"lift",        label:"Lift Maintenance",     icon:"🛗",  color:"#d946ef", keywords:["lift","elevator","maintenance charge","lift amc"] },
   { id:"insurance",   label:"Insurance Premium",    icon:"🛡️",  color:"#ef4444", keywords:["insurance","premium","policy renewal"] },
 ];
 
-const detectRecurring = (purpose="",notes="") => {
-  const text = (purpose + " " + notes).toLowerCase();
+const recurringMatchText = (purpose="",notes="",subCategory="") => `${purpose} ${notes} ${subCategory}`.toLowerCase();
+
+const detectRecurring = (purpose="",notes="",subCategory="") => {
+  const text = recurringMatchText(purpose,notes,subCategory);
   return RECURRING_TYPES.find(r => r.keywords.some(k => text.includes(k))) || null;
 };
 
@@ -167,13 +182,13 @@ const INIT_ENTRIES = [
   { id:"E00005", txnId:"GNCEV-GNCHTH25-00002", date:"2025-08-20", member:"Mohan Das",     categoryCode:"GNCEV", category:"Community Events",  amount:6200, purpose:"Decoration materials",    upiId:"dec@phonepe", status:"Pending",    notes:"",         eventId:"EVT001", subCategory:"Decorations" },
   { id:"E00006", txnId:"GNCEV-ONAM25-00001",   date:"2025-08-28", member:"Kavitha Reddy", categoryCode:"GNCEV", category:"Community Events",  amount:4500, purpose:"Pookalam flowers",        upiId:"flow@gpay",   status:"Reimbursed", notes:"",         eventId:"EVT002", subCategory:"Decorations" },
   { id:"E00007", txnId:"GNMI00001",            date:"2025-03-05", member:"Deepak Nair",   categoryCode:"GNMI",  category:"Miscellaneous",      amount:560,  purpose:"Electricity advance",      upiId:"elec@phonep", status:"Pending",    notes:"",         eventId:null, subCategory:null },
-  { id:"E00008", txnId:"GNREC00001",           date:"2025-09-01", member:"Arjun Sharma",  categoryCode:"GNREC", category:"Recurring Expenses",  amount:18000,purpose:"Security guard salary Sep", upiId:"guard@upi",  status:"Reimbursed", notes:"Monthly",  eventId:null, subCategory:null },
-  { id:"E00009", txnId:"GNREC00002",           date:"2025-09-03", member:"Priya Mehta",   categoryCode:"GNREC", category:"Recurring Expenses",  amount:4200, purpose:"Electricity bill Sep",      upiId:"ebill@upi",  status:"Reimbursed", notes:"",         eventId:null, subCategory:null },
+  { id:"E00008", txnId:"GNREC00001",           date:"2025-09-01", member:"Arjun Sharma",  categoryCode:"GNREC", category:"Recurring Expenses",  amount:18000,purpose:"Security guard salary Sep", upiId:"guard@upi",  status:"Reimbursed", notes:"Monthly",  eventId:null, subCategory:"Salaries" },
+  { id:"E00009", txnId:"GNREC00002",           date:"2025-09-03", member:"Priya Mehta",   categoryCode:"GNREC", category:"Recurring Expenses",  amount:4200, purpose:"Electricity bill Sep",      upiId:"ebill@upi",  status:"Reimbursed", notes:"",         eventId:null, subCategory:"Electricity Bills - Block A" },
   { id:"E00010", txnId:"GNREC00003",           date:"2025-09-05", member:"Ravi Kumar",    categoryCode:"GNREC", category:"Recurring Expenses",  amount:1800, purpose:"Lift AMC quarterly charge",  upiId:"lift@upi",   status:"Reimbursed", notes:"AMC Q3",  eventId:null, subCategory:null },
-  { id:"E00011", txnId:"GNREC00004",           date:"2025-09-10", member:"Sunita Patel",  categoryCode:"GNREC", category:"Recurring Expenses",  amount:2400, purpose:"Water tanker charges Sep",   upiId:"water@upi",  status:"Pending",    notes:"",         eventId:null, subCategory:null },
-  { id:"E00012", txnId:"GNREC00005",           date:"2025-08-01", member:"Arjun Sharma",  categoryCode:"GNREC", category:"Recurring Expenses",  amount:17500,purpose:"Security guard salary Aug",  upiId:"guard@upi",  status:"Reimbursed", notes:"Monthly",  eventId:null, subCategory:null },
-  { id:"E00013", txnId:"GNREC00006",           date:"2025-08-04", member:"Priya Mehta",   categoryCode:"GNREC", category:"Recurring Expenses",  amount:3950, purpose:"Electricity bill Aug",       upiId:"ebill@upi",  status:"Reimbursed", notes:"",         eventId:null, subCategory:null },
-  { id:"E00014", txnId:"GNREC00007",           date:"2025-08-12", member:"Ravi Kumar",    categoryCode:"GNREC", category:"Recurring Expenses",  amount:2200, purpose:"Water tanker charges Aug",   upiId:"water@upi",  status:"Reimbursed", notes:"",         eventId:null, subCategory:null },
+  { id:"E00011", txnId:"GNREC00004",           date:"2025-09-10", member:"Sunita Patel",  categoryCode:"GNREC", category:"Recurring Expenses",  amount:2400, purpose:"Water tanker charges Sep",   upiId:"water@upi",  status:"Pending",    notes:"",         eventId:null, subCategory:"HWMS WATER Bill" },
+  { id:"E00012", txnId:"GNREC00005",           date:"2025-08-01", member:"Arjun Sharma",  categoryCode:"GNREC", category:"Recurring Expenses",  amount:17500,purpose:"Security guard salary Aug",  upiId:"guard@upi",  status:"Reimbursed", notes:"Monthly",  eventId:null, subCategory:"Salaries" },
+  { id:"E00013", txnId:"GNREC00006",           date:"2025-08-04", member:"Priya Mehta",   categoryCode:"GNREC", category:"Recurring Expenses",  amount:3950, purpose:"Electricity bill Aug",       upiId:"ebill@upi",  status:"Reimbursed", notes:"",         eventId:null, subCategory:"Electricity Bills - Block B" },
+  { id:"E00014", txnId:"GNREC00007",           date:"2025-08-12", member:"Ravi Kumar",    categoryCode:"GNREC", category:"Recurring Expenses",  amount:2200, purpose:"Water tanker charges Aug",   upiId:"water@upi",  status:"Reimbursed", notes:"",         eventId:null, subCategory:"HWMS WATER Bill" },
 ];
 
 const INIT_COUNTERS = {
@@ -2556,7 +2571,7 @@ function EditEntryModal({entry,members,events,categories,onSave,onClose}) {
             </div>
             <div>
               <label style={LBL}>Category</label>
-              <select value={form.categoryCode} onChange={e=>{const c=categories.find(x=>x.code===e.target.value);setForm(f=>({...f,categoryCode:e.target.value,category:(c&&c.label)||""}));}} style={INP}>
+              <select value={form.categoryCode} onChange={e=>{const c=categories.find(x=>x.code===e.target.value);setForm(f=>({...f,categoryCode:e.target.value,category:(c&&c.label)||"",eventId:e.target.value==="GNCEV"?f.eventId:"",subCategory:""}));}} style={INP}>
                 {categories.map(c=><option key={c.code} value={c.code}>{c.icon} {c.label}</option>)}
               </select>
             </div>
@@ -2575,6 +2590,15 @@ function EditEntryModal({entry,members,events,categories,onSave,onClose}) {
               <select value={form.eventId||""} onChange={e=>setForm(f=>({...f,eventId:e.target.value}))} style={INP}>
                 <option value="">No event</option>
                 {[...openEvents,...events.filter(e=>e.status!=="open")].map(ev=><option key={ev.id} value={ev.id}>{ev.name}</option>)}
+              </select>
+            </div>
+          )}
+          {form.categoryCode==="GNREC"&&(
+            <div>
+              <label style={LBL}>Recurring Sub-Category</label>
+              <select value={form.subCategory||""} onChange={e=>setForm(f=>({...f,subCategory:e.target.value}))} style={INP}>
+                <option value="">Select recurring sub-category</option>
+                {RECURRING_SUBCATS.map(s=><option key={s}>{s}</option>)}
               </select>
             </div>
           )}
@@ -2978,6 +3002,7 @@ export default function App() {
   };
 
   const isEventCat = form.categoryCode === "GNCEV";
+  const isRecurringCat = form.categoryCode === "GNREC";
   const openEvents = events.filter(e=>e.status==="open");
   const selCat     = catByCode(form.categoryCode);
 
@@ -3171,7 +3196,7 @@ export default function App() {
 
   // Recurring vs one-time split from filtered
   // An entry is recurring if it's in GNREC category OR matches keyword detection
-  const isRecurringEntry = (e) => e.categoryCode==="GNREC" || !!detectRecurring(e.purpose,e.notes||"");
+  const isRecurringEntry = (e) => e.categoryCode==="GNREC" || !!detectRecurring(e.purpose,e.notes||"",e.subCategory||"");
   const filteredRecurring  = filtered.filter(e=>isRecurringEntry(e));
   const filteredOneTime    = filtered.filter(e=>!isRecurringEntry(e));
   const recurringTotal     = filteredRecurring.reduce((s,e)=>s+e.amount,0);
@@ -3179,7 +3204,7 @@ export default function App() {
 
   // Per-recurring-type MoM comparison (uses all entries, not just filtered, for accurate prev/cur month)
   const recurringMoM = RECURRING_TYPES.map(rt => {
-    const matchFn = e => rt.keywords.some(k=>(e.purpose+" "+(e.notes||"")).toLowerCase().includes(k));
+    const matchFn = e => rt.keywords.some(k=>recurringMatchText(e.purpose,e.notes||"",e.subCategory||"").includes(k));
     const curAmt  = entries.filter(e=>{ const d=new Date(e.date); return d.getMonth()===curMonth&&d.getFullYear()===curYear&&matchFn(e); }).reduce((s,e)=>s+e.amount,0);
     const prevAmt = entries.filter(e=>{ const d=new Date(e.date); return d.getMonth()===prevMonth&&d.getFullYear()===prevYear&&matchFn(e); }).reduce((s,e)=>s+e.amount,0);
     const diff = curAmt - prevAmt;
@@ -3189,14 +3214,14 @@ export default function App() {
 
   // Group filteredRecurring by recurring type for grouped view
   const recurringByType = RECURRING_TYPES.map(rt => {
-    const matchFn = e => rt.keywords.some(k=>(e.purpose+" "+(e.notes||"")).toLowerCase().includes(k));
+    const matchFn = e => rt.keywords.some(k=>recurringMatchText(e.purpose,e.notes||"",e.subCategory||"").includes(k));
     const items = filteredRecurring.filter(e=>matchFn(e));
     const total = items.reduce((s,e)=>s+e.amount,0);
     const mom   = recurringMoM.find(r=>r.id===rt.id);
     return { ...rt, items, total, mom };
   }).filter(g=>g.items.length>0);
   // Entries in GNREC that didn't match any type keyword
-  const recurringUncategorized = filteredRecurring.filter(e=>!detectRecurring(e.purpose,e.notes||""));
+  const recurringUncategorized = filteredRecurring.filter(e=>!detectRecurring(e.purpose,e.notes||"",e.subCategory||""));
 
   const toggleStatus=async(id)=>{
     const entry=entries.find(e=>e.id===id);
@@ -4167,6 +4192,19 @@ export default function App() {
                   </>
                 )}
 
+                {isRecurringCat&&(
+                  <div>
+                    <label style={LBL}>Recurring Sub-Category</label>
+                    <select value={form.subCategory} onChange={e=>setForm(f=>({...f,subCategory:e.target.value}))} style={INP}>
+                      <option value="">Select recurring sub-category</option>
+                      {RECURRING_SUBCATS.map(s=><option key={s}>{s}</option>)}
+                    </select>
+                    <div style={{fontSize:11,color:"rgba(255,255,255,0.4)",marginTop:5}}>
+                      Use this for electricity blocks, HWMS water, salaries, fuel, or consumables.
+                    </div>
+                  </div>
+                )}
+
                 <div>
                   <label style={{...LBL,color:fieldErrors.purpose?"#ef4444":undefined}}>Purpose / Description *</label>
                   <textarea value={form.purpose} onChange={e=>{setForm(f=>({...f,purpose:e.target.value}));clearFieldError("purpose");}} placeholder="Describe the payment purpose" rows={2} style={{...inpStyle("purpose"),resize:"vertical"}}/>
@@ -4585,7 +4623,7 @@ export default function App() {
                           {filtered.length===0
                             ? <tr><td colSpan={7} style={{padding:"44px",textAlign:"center",color:"rgba(255,255,255,0.2)",fontSize:14}}>No entries match current filters</td></tr>
                             : filtered.map(e=>{
-                                const rt=detectRecurring(e.purpose,e.notes||"");
+                                const rt=detectRecurring(e.purpose,e.notes||"",e.subCategory||"");
                                 return <EntryRow key={e.id} e={e} isRecurring={!!rt} recurType={rt}/>;
                               })
                           }
