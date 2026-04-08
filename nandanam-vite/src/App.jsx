@@ -2554,7 +2554,7 @@ function EditEntryModal({entry,members,events,categories,onSave,onClose}) {
         <div style={{display:"grid",gap:12}}>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
             <div>
-              <label style={LBL}>Member</label>
+              <label style={LBL}>Paid by Member</label>
               <select value={form.member} onChange={e=>setForm(f=>({...f,member:e.target.value}))} style={INP}>
                 {members.map(m=><option key={m}>{m}</option>)}
               </select>
@@ -2930,7 +2930,7 @@ export default function App() {
   };
 
   useEffect(()=>{
-    const activeMember = verifiedMember || form.member;
+  const activeMember = isTreasurer ? form.member : (verifiedMember || form.member);
     const parsedAmt = Number(form.amount);
     if(!activeMember || !form.categoryCode || !form.date || !form.amount || isNaN(parsedAmt) || parsedAmt<=0){
       setDupWarning(null);
@@ -3077,7 +3077,7 @@ export default function App() {
     const savedReceiptMime = receiptDataUrl ? receiptDataUrl.split(";")[0].replace("data:","") : null;
     const savedInvoice = invoiceDataUrl; // capture before clearing
     const savedInvoiceMime = invoiceDataUrl ? invoiceDataUrl.split(";")[0].replace("data:","") : null;
-    setForm(f=>({member:verifiedMember||f.member,amount:"",categoryCode:"",purpose:"",date:todayStr(),upiId:"",notes:"",eventId:"",subCategory:"",txnRef:"",chequeNo:"",payeeDetails:""}));
+    setForm(f=>({member:isTreasurer?f.member:(verifiedMember||f.member),amount:"",categoryCode:"",purpose:"",date:todayStr(),upiId:"",notes:"",eventId:"",subCategory:"",txnRef:"",chequeNo:"",payeeDetails:""}));
     setFieldErrors({});
     setDupWarning(null);setDupOverride(false);
     setReceiptDataUrl(null);resetReceiptInput();setInvoiceDataUrl(null);resetInvoiceInput();
@@ -4005,6 +4005,7 @@ export default function App() {
                   <h2 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:27,color:"#fbbf24",margin:"0 0 4px"}}>Submit Expense</h2>
                   <p style={{color:"rgba(255,255,255,0.4)",fontSize:13,margin:0}}>Attach a receipt or screenshot for your records</p>
                   {verifiedMember&&<div style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:6,background:isTreasurerMember(verifiedMember)?"rgba(251,191,36,0.1)":"rgba(16,185,129,0.1)",border:`1px solid ${isTreasurerMember(verifiedMember)?"rgba(251,191,36,0.4)":"rgba(16,185,129,0.3)"}`,borderRadius:8,padding:"4px 10px",fontSize:12,color:isTreasurerMember(verifiedMember)?"#fbbf24":"#10b981",fontWeight:700}}>✓ Verified: {verifiedMember}{isTreasurerMember(verifiedMember)&&<span style={{fontSize:10,opacity:0.8}}> ★ Treasurer</span>} <button onClick={()=>{setVerifiedMember(null);setForm(f=>({...f,member:""}));if(authSession?.role==="Member"&&authSession?.member===verifiedMember)clearAuthSession();}} style={{background:"none",border:"none",color:"rgba(255,255,255,0.3)",cursor:"pointer",fontSize:11,padding:0,marginLeft:2}}>switch</button></div>}
+                  {isTreasurer&&<div style={{marginTop:8,fontSize:12,color:"rgba(251,191,36,0.72)",fontWeight:600}}>Treasurer mode is active. You can submit or update expenses on behalf of any member.</div>}
                 </div>
                 <button onClick={()=>setShowBulk(true)} style={{flexShrink:0,background:"linear-gradient(135deg,#3730a3,#4f46e5)",color:"#fff",border:"none",borderRadius:11,padding:"9px 15px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,display:"flex",alignItems:"center",gap:7,boxShadow:"0 4px 16px rgba(99,102,241,0.4)",whiteSpace:"nowrap"}}>
                   <span style={{fontSize:15}}>📥</span> Bulk Import
@@ -4022,7 +4023,7 @@ export default function App() {
                   <div style={{fontSize:12,color:"#93c5fd",fontWeight:700}}>
                     Draft auto-saved on this device
                   </div>
-                  <button type="button" onClick={()=>{setForm({member:verifiedMember||"",amount:"",categoryCode:"",purpose:"",date:todayStr(),upiId:"",notes:"",eventId:"",subCategory:"",txnRef:"",chequeNo:"",payeeDetails:""});setPayType("upi");setReceiptDataUrl(null);resetReceiptInput();setInvoiceDataUrl(null);resetInvoiceInput();setDupWarning(null);setDupOverride(false);clearSubmitDraft();}} style={{background:"none",border:"1px solid rgba(255,255,255,0.14)",color:"rgba(255,255,255,0.72)",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+                  <button type="button" onClick={()=>{setForm({member:isTreasurer?(form.member||""):(verifiedMember||""),amount:"",categoryCode:"",purpose:"",date:todayStr(),upiId:"",notes:"",eventId:"",subCategory:"",txnRef:"",chequeNo:"",payeeDetails:""});setPayType("upi");setReceiptDataUrl(null);resetReceiptInput();setInvoiceDataUrl(null);resetInvoiceInput();setDupWarning(null);setDupOverride(false);clearSubmitDraft();}} style={{background:"none",border:"1px solid rgba(255,255,255,0.14)",color:"rgba(255,255,255,0.72)",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
                     Clear Draft
                   </button>
                 </div>
@@ -4143,8 +4144,18 @@ export default function App() {
                   </div>
                 )}
                 <div>
-                  <label style={{...LBL,color:fieldErrors.member?"#ef4444":undefined}}>Member Name *</label>
-                  {verifiedMember ? (
+                  <label style={{...LBL,color:fieldErrors.member?"#ef4444":undefined}}>{isTreasurer ? "Paid by Member *" : "Member Name *"}</label>
+                  {isTreasurer ? (
+                    <>
+                      <select value={form.member} onChange={e=>{setForm(f=>({...f,member:e.target.value}));clearFieldError("member");}} style={inpStyle("member")}>
+                        <option value="">Select paid by member</option>
+                        {members.map(m=><option key={m}>{m}</option>)}
+                      </select>
+                      <div style={{fontSize:11,color:"rgba(255,255,255,0.42)",marginTop:5}}>
+                        Treasurer mode: record or update an expense on behalf of the member who actually paid.
+                      </div>
+                    </>
+                  ) : verifiedMember ? (
                     <div style={{...INP,display:"flex",alignItems:"center",gap:10,background:"rgba(16,185,129,0.07)",border:"1.5px solid rgba(16,185,129,0.35)",cursor:"default",paddingTop:9,paddingBottom:9}}>
                       <span style={{fontSize:16}}>✓</span>
                       <span style={{flex:1,fontWeight:700,color:isTreasurerMember(verifiedMember)?"#fbbf24":"#10b981"}}>{verifiedMember}</span>
