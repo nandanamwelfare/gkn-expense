@@ -29,7 +29,8 @@ const COMMUNITY = {
   tagline: "Cultural Association · Welfare & Expense Management",
 };
 
-const LOGO_SRC = "/icons/logo-main.png?v=2";
+const LOGO_VER = "20260410a";
+const LOGO_SRC = `/icons/logo-main.png?v=${LOGO_VER}`;
 
 const CATEGORIES = [
   {
@@ -2697,6 +2698,8 @@ export default function App() {
   const [fEvent,setFEvent]   = useState("all");
   const [fPayType,setFPayType] = useState("all");
   const [fMember,setFMember] = useState("all");
+  const [sortBy,setSortBy] = useState("date");
+  const [sortDir,setSortDir] = useState("desc");
 
   const [showBulk,setShowBulk]           = useState(false);
   const [bulkRows,setBulkRows]           = useState([]);
@@ -2746,6 +2749,26 @@ export default function App() {
     setAuthSession(null);
     setIsTreasurer(false);
     try{sessionStorage.removeItem("nandanam_auth");}catch{}
+  };
+  const handleUserLogout=()=>{
+    clearAuthSession();
+    setVerifiedMember(null);
+    setForm({member:"",amount:"",categoryCode:"",purpose:"",date:todayStr(),upiId:"",notes:"",eventId:"",subCategory:"",txnRef:"",chequeNo:"",payeeDetails:""});
+    setPayType("upi");
+    setReceiptDataUrl(null); resetReceiptInput();
+    setInvoiceDataUrl(null); resetInvoiceInput();
+    setFieldErrors({});
+    setDupWarning(null);
+    setDupOverride(false);
+    setPendingView(null);
+    setView("submit");
+    clearSubmitDraft();
+    showToast("Logged out","info");
+  };
+  const toggleTreasurerSort=(nextKey)=>{
+    if(sortBy===nextKey){ setSortDir(d=>d==="asc"?"desc":"asc"); return; }
+    setSortBy(nextKey);
+    setSortDir(nextKey==="date" || nextKey==="amount" ? "desc" : "asc");
   };
   const callScript=async(action,data={})=>{
     if(!scriptUrl){addLog(`callScript(${action}) — no URL`,"warn");return{success:false,error:"Not configured"};}
@@ -3169,6 +3192,19 @@ export default function App() {
   const totalAmt   = filtered.reduce((s,e)=>s+e.amount,0);
   const pendingAmt = filtered.filter(e=>e.status==="Pending").reduce((s,e)=>s+e.amount,0);
   const reimAmt    = filtered.filter(e=>e.status==="Reimbursed").reduce((s,e)=>s+e.amount,0);
+  const sortedFiltered = [...filtered].sort((a,b)=>{
+    const dir = sortDir==="asc" ? 1 : -1;
+    if(sortBy==="date"){
+      return (new Date(a.date).getTime() - new Date(b.date).getTime()) * dir;
+    }
+    if(sortBy==="amount"){
+      return ((Number(a.amount)||0) - (Number(b.amount)||0)) * dir;
+    }
+    const toText = (value) => String(value||"").toLowerCase();
+    const aVal = sortBy==="category" ? toText(a.categoryCode || a.category) : toText(a[sortBy]);
+    const bVal = sortBy==="category" ? toText(b.categoryCode || b.category) : toText(b[sortBy]);
+    return aVal.localeCompare(bVal, "en", {numeric:true, sensitivity:"base"}) * dir;
+  });
   const catBreakdownItems = Object.entries(
     filtered.reduce(function(a,e){
       var cl = e.category || (catByCode(e.categoryCode) && catByCode(e.categoryCode).label) || e.categoryCode || "Unknown";
@@ -3448,7 +3484,7 @@ export default function App() {
     .header{border-top:4px solid #0f2b52;padding-top:14px;}
     .header-top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;}
     .brand{display:flex;align-items:flex-start;gap:14px;}
-    .logo{width:54px;height:54px;object-fit:contain;border-radius:10px;border:1px solid #d7dee8;background:#fff;}
+      .logo{width:54px;height:54px;object-fit:contain;border-radius:10px;border:1px solid #d7dee8;background:transparent;}
     .title{font-size:23px;font-weight:800;line-height:1.1;color:#0f172a;}
     .subtitle{font-size:13px;color:#4b5563;margin-top:4px;}
     .report-tag{font-size:12px;font-weight:700;color:#0f2b52;border:1px solid #bfd0e3;background:#f7fafc;padding:7px 10px;border-radius:999px;white-space:nowrap;}
@@ -3781,6 +3817,14 @@ export default function App() {
         /* ── Table scroll ── */
         .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
         .tbl-wrap table{min-width:680px;}
+        .hdr-brand{display:flex;align-items:center;gap:14px;min-width:0;flex:1 1 auto;}
+        .hdr-brand-copy{min-width:0;}
+        .hdr-actions{display:flex;gap:2px;align-items:center;justify-content:flex-end;flex:0 1 auto;min-width:0;flex-wrap:wrap;}
+        .hdr-title{overflow-wrap:anywhere;line-height:1.05;}
+        .hdr-tagline{white-space:normal;line-height:1.2;}
+        .sort-btn{background:none;border:none;color:inherit;font:inherit;cursor:pointer;padding:0;display:inline-flex;align-items:center;gap:5px;text-transform:inherit;letter-spacing:inherit;}
+        .sort-btn.active{color:#fbbf24;}
+        .sort-ind{font-size:11px;opacity:0.9;}
 
         /* ══ MOBILE XS: 320–389px (small Android, iPhone SE) ══ */
         @media(max-width:389px){
@@ -3902,15 +3946,15 @@ export default function App() {
       {/* HEADER */}
       <div style={{background:"linear-gradient(180deg,#071020 0%,#060d1a 100%)",borderBottom:"1px solid rgba(251,191,36,0.2)",position:"sticky",top:0,zIndex:100,boxShadow:"0 4px 30px rgba(0,0,0,0.5)"}}>
         <div style={{height:3,background:"linear-gradient(90deg,#1d4ed8,#f59e0b,#10b981,#f59e0b,#1d4ed8)"}}/>
-        <div className="hdr-inner" style={{maxWidth:1100,margin:"0 auto",padding:"0 24px",display:"flex",alignItems:"center",justifyContent:"space-between",height:72}}>
-          <div style={{display:"flex",alignItems:"center",gap:14}}>
-            <img className="hdr-logo" src={LOGO_SRC} alt="Gokul's Nandanam" style={{width:52,height:52,objectFit:"contain",borderRadius:10}}/>
-            <div>
-              <div className="hdr-title" style={{fontFamily:"'Cormorant Garamond',serif",fontWeight:800,fontSize:20,color:"#fbbf24",lineHeight:1}}>{COMMUNITY.name}</div>
-              <div className="hdr-tagline" style={{fontSize:11,color:"rgba(255,255,255,0.35)",marginTop:2,letterSpacing:"0.04em"}}>{COMMUNITY.tagline}</div>
+        <div className="hdr-inner" style={{maxWidth:1100,margin:"0 auto",padding:"10px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",minHeight:72,gap:14}}>
+          <div className="hdr-brand">
+            <img className="hdr-logo" src={LOGO_SRC} alt="Gokul's Nandanam" style={{width:52,height:52,objectFit:"contain",borderRadius:10,flexShrink:0}}/>
+            <div className="hdr-brand-copy">
+              <div className="hdr-title" style={{fontFamily:"'Cormorant Garamond',serif",fontWeight:800,fontSize:20,color:"#fbbf24"}}>{COMMUNITY.name}</div>
+              <div className="hdr-tagline" style={{fontSize:11,color:"rgba(255,255,255,0.35)",marginTop:3,letterSpacing:"0.03em",maxWidth:320}}>{COMMUNITY.tagline}</div>
             </div>
           </div>
-          <div style={{display:"flex",gap:2,alignItems:"center"}}>
+          <div className="hdr-actions">
             {[["submit","Submit","wall"],["dashboard","Treasurer","bar"],["events","Events","star"],["members","Members","user"],["bank","Bank","trd"]].map(([v,l,i])=>(
               <button key={v} className="nt nav-btn" onClick={()=>{
                 if((v==="dashboard"||v==="events"||v==="members"||v==="bank")&&!isTreasurer){setPendingView(v);setShowPin(true);}
@@ -3946,6 +3990,11 @@ export default function App() {
             {isTreasurer&&(
               <button onClick={()=>{clearAuthSession();setVerifiedMember(null);setForm(f=>({...f,member:""}));setView("submit");showToast("Locked — back to member view","info");}} style={{background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.2)",color:"#ef4444",borderRadius:10,padding:"7px 11px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,display:"flex",alignItems:"center",gap:5}}>
                 🔒 Lock
+              </button>
+            )}
+            {(verifiedMember || isTreasurer) && (
+              <button onClick={handleUserLogout} style={{marginLeft:4,background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.2)",color:"#fca5a5",borderRadius:10,padding:"7px 11px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,display:"flex",alignItems:"center",gap:5}}>
+                ↩ Logout
               </button>
             )}
             {isTreasurer&&<button onClick={()=>setShowSheets(true)} style={{marginLeft:6,background:dbReady?"rgba(16,185,129,0.1)":"rgba(251,191,36,0.08)",border:`1px solid ${dbReady?"rgba(16,185,129,0.3)":"rgba(251,191,36,0.25)"}`,color:dbReady?"#10b981":"#fbbf24",borderRadius:10,padding:"7px 13px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,display:"flex",alignItems:"center",gap:6}}>
@@ -4540,6 +4589,18 @@ export default function App() {
             <div style={{background:"rgba(255,255,255,0.02)",borderRadius:16,overflow:"hidden",border:"1px solid rgba(255,255,255,0.06)"}}>
               <div className="tbl-wrap" style={{overflowX:"auto"}}>
                 {(()=>{
+                  const tableColSpan = isTreasurer ? 9 : 8;
+                  const sortColumns = [
+                    {label:"Txn ID", key:"txnId"},
+                    {label:"Date", key:"date"},
+                    {label:"Member", key:"member"},
+                    {label:"Category", key:"category"},
+                    {label:"Purpose", key:"purpose"},
+                    {label:"Amount", key:"amount"},
+                    {label:"📎", key:null},
+                    {label:"Status", key:"status"},
+                    ...(isTreasurer ? [{label:"Actions", key:null}] : []),
+                  ];
                   const EntryRow = ({e, isRecurring, recurType})=>{
                     const cat=catByCode(e.categoryCode||"GNMI");
                     const ev=events.find(ev=>ev.id===e.eventId);
@@ -4619,8 +4680,15 @@ export default function App() {
                   const TH = ()=>(
                     <thead>
                       <tr style={{borderBottom:"1px solid rgba(251,191,36,0.15)"}}>
-                        {["Txn ID","Date","Member","Category","Purpose","Amount","📎","Status",...(isTreasurer?["Actions"]:[])].map(h=>(
-                          <th key={h} style={{padding:"11px 15px",textAlign:"left",fontSize:10,fontWeight:700,color:"rgba(251,191,36,0.55)",textTransform:"uppercase",letterSpacing:"0.08em",whiteSpace:"nowrap"}}>{h}</th>
+                        {sortColumns.map(col=>(
+                          <th key={col.label} style={{padding:"11px 15px",textAlign:"left",fontSize:10,fontWeight:700,color:"rgba(251,191,36,0.55)",textTransform:"uppercase",letterSpacing:"0.08em",whiteSpace:"nowrap"}}>
+                            {col.key ? (
+                              <button className={`sort-btn ${sortBy===col.key ? "active" : ""}`} onClick={()=>toggleTreasurerSort(col.key)} title={`Sort by ${col.label}`}>
+                                <span>{col.label}</span>
+                                <span className="sort-ind">{sortBy===col.key ? (sortDir==="asc" ? "▲" : "▼") : "↕"}</span>
+                              </button>
+                            ) : col.label}
+                          </th>
                         ))}
                       </tr>
                     </thead>
@@ -4631,9 +4699,9 @@ export default function App() {
                       <table style={{width:"100%",borderCollapse:"collapse",minWidth:820}}>
                         <TH/>
                         <tbody>
-                          {filtered.length===0
-                            ? <tr><td colSpan={7} style={{padding:"44px",textAlign:"center",color:"rgba(255,255,255,0.2)",fontSize:14}}>No entries match current filters</td></tr>
-                            : filtered.map(e=>{
+                          {sortedFiltered.length===0
+                            ? <tr><td colSpan={tableColSpan} style={{padding:"44px",textAlign:"center",color:"rgba(255,255,255,0.2)",fontSize:14}}>No entries match current filters</td></tr>
+                            : sortedFiltered.map(e=>{
                                 const rt=detectRecurring(e.purpose,e.notes||"",e.subCategory||"");
                                 return <EntryRow key={e.id} e={e} isRecurring={!!rt} recurType={rt}/>;
                               })
