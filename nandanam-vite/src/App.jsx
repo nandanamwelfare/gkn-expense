@@ -121,6 +121,21 @@ const EVENT_SUBCATS = [
   "Printing & Banners","Gifts & Prizes","Transport","Venue","Miscellaneous",
 ];
 
+const INCOME_CATEGORY = {
+  label: "Income / Credits",
+  code: "GNINC",
+  color: "#14b8a6",
+  icon: "💰",
+};
+
+const INCOME_TYPES = [
+  "Advertising Income",
+  "Community Hall Booking",
+  "Vendor Stall",
+  "Donation",
+  "Other Income",
+];
+
 const RECURRING_SUBCATS = [
   "Electricity Bills - Block A",
   "Electricity Bills - Block B",
@@ -162,7 +177,8 @@ const MONTHS    = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","
 const pad5      = (n) => String(n).padStart(5,"0");
 const genId     = () => `E${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2,5).toUpperCase()}`;
 const evTag    = (name) => name.replace(/[^a-zA-Z0-9]/g,"").toUpperCase().slice(0,8);
-const catByCode  = (code)  => CATEGORIES.find(c=>c.code===code)  || CATEGORIES[4];
+const isCreditEntry = (entry) => entry?.txnType === "credit" || entry?.payType === "credit" || entry?.categoryCode === INCOME_CATEGORY.code;
+const catByCode  = (code)  => code === INCOME_CATEGORY.code ? INCOME_CATEGORY : (CATEGORIES.find(c=>c.code===code)  || CATEGORIES[4]);
 const catByLabel = (label) => CATEGORIES.find(c=>c.label===label) || CATEGORIES[4];
 const SUBMIT_DRAFT_KEY = "nandanam_submit_draft_v1";
 const INSTALL_BANNER_KEY = "nandanam_install_banner_hidden_v1";
@@ -2617,6 +2633,78 @@ function EditEntryModal({entry,members,events,categories,onSave,onClose}) {
   );
 }
 
+function CreditModal({members, currentUser, onSave, onClose}) {
+  const [form,setForm] = useState({
+    amount:"",
+    date:todayStr(),
+    sourceType:INCOME_TYPES[0],
+    receivedFrom:"",
+    reference:"",
+    notes:"",
+    receivedBy:currentUser || members[0] || "",
+  });
+  const INP={width:"100%",padding:"10px 14px",borderRadius:10,border:"1.5px solid rgba(255,255,255,0.12)",background:"rgba(255,255,255,0.06)",color:"#fff",fontSize:14,fontFamily:"'DM Sans',sans-serif",outline:"none",boxSizing:"border-box"};
+  const LBL={fontSize:10,fontWeight:800,color:"rgba(255,255,255,0.48)",display:"block",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.06em"};
+  const amount=Number(form.amount);
+  const canSave=form.date && form.sourceType && form.receivedFrom.trim() && amount>0;
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.82)",zIndex:1300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{background:"#071428",border:"1px solid rgba(20,184,166,0.35)",borderRadius:22,padding:26,width:"100%",maxWidth:560,boxShadow:"0 24px 80px rgba(0,0,0,0.65)"}}>
+        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:16,marginBottom:18}}>
+          <div>
+            <h3 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:25,color:"#5eead4",margin:"0 0 4px"}}>💰 Add Credit / Income</h3>
+            <div style={{fontSize:12,color:"rgba(255,255,255,0.45)"}}>Treasurer-only revenue entry for association income.</div>
+          </div>
+          <button onClick={onClose} style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.12)",color:"rgba(255,255,255,0.55)",borderRadius:10,padding:"8px 10px",cursor:"pointer"}}><Icon n="x" s={16}/></button>
+        </div>
+        <div style={{display:"grid",gap:13}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <div>
+              <label style={LBL}>Income Type *</label>
+              <select value={form.sourceType} onChange={e=>setForm(f=>({...f,sourceType:e.target.value}))} style={INP}>
+                {INCOME_TYPES.map(type=><option key={type}>{type}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={LBL}>Date *</label>
+              <input type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))} style={INP}/>
+            </div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <div>
+              <label style={LBL}>Amount Received *</label>
+              <input type="number" value={form.amount} onChange={e=>setForm(f=>({...f,amount:e.target.value}))} placeholder="0" style={INP}/>
+            </div>
+            <div>
+              <label style={LBL}>Received By</label>
+              <select value={form.receivedBy} onChange={e=>setForm(f=>({...f,receivedBy:e.target.value}))} style={INP}>
+                {members.map(m=><option key={m}>{m}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label style={LBL}>Received From *</label>
+            <input value={form.receivedFrom} onChange={e=>setForm(f=>({...f,receivedFrom:e.target.value}))} placeholder="Advertiser, booking person, stall vendor, donor..." style={INP}/>
+          </div>
+          <div>
+            <label style={LBL}>Reference / Receipt No.</label>
+            <input value={form.reference} onChange={e=>setForm(f=>({...f,reference:e.target.value}))} placeholder="UPI ref, receipt no., booking ref..." style={INP}/>
+          </div>
+          <div>
+            <label style={LBL}>Notes</label>
+            <textarea value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} rows={2} placeholder="Optional context" style={{...INP,resize:"vertical"}}/>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:4}}>
+            <button onClick={onClose} style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.12)",color:"rgba(255,255,255,0.72)",borderRadius:12,padding:"11px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:700}}>Cancel</button>
+            <button onClick={()=>canSave&&onSave({...form,amount})} disabled={!canSave} style={{background:"linear-gradient(135deg,#0f766e,#14b8a6)",color:"#ecfeff",border:"none",borderRadius:12,padding:"11px",cursor:canSave?"pointer":"not-allowed",fontFamily:"'DM Sans',sans-serif",fontWeight:900,opacity:canSave?1:0.45}}>Save Credit</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ═══════════════════════════════════════════════════════════
    MAIN APP
 ═══════════════════════════════════════════════════════════ */
@@ -2702,6 +2790,7 @@ export default function App() {
   const [sortDir,setSortDir] = useState("desc");
 
   const [showBulk,setShowBulk]           = useState(false);
+  const [showCredit,setShowCredit]       = useState(false);
   const [bulkRows,setBulkRows]           = useState([]);
   const [bulkExtracting,setBulkExtracting] = useState(false);
   const [bulkMember,setBulkMember]       = useState("");
@@ -3166,6 +3255,56 @@ export default function App() {
     }
   };
 
+  const handleAddCredit=async(credit)=>{
+    if(!isTreasurer){
+      showToast("Treasurer access required to add income credits.","error");
+      return;
+    }
+    const amount = Number(credit.amount);
+    if(!credit.date || !credit.sourceType || !credit.receivedFrom || !amount || amount<=0){
+      showToast("Enter income type, received from, date, and amount.","error");
+      return;
+    }
+    const cKey = INCOME_CATEGORY.code;
+    const n = (counters[cKey]||0)+1;
+    const txnId = `${cKey}${pad5(n)}`;
+    const entry = {
+      id:genId(),
+      txnId,
+      date:credit.date,
+      member:credit.receivedBy || authSession?.member || verifiedMember || members[0] || "Treasurer",
+      categoryCode:INCOME_CATEGORY.code,
+      category:INCOME_CATEGORY.label,
+      amount,
+      purpose:`${credit.sourceType}: ${credit.receivedFrom}`,
+      upiId:credit.reference || "Income credit",
+      status:"Reimbursed",
+      notes:credit.notes || "",
+      eventId:null,
+      subCategory:credit.sourceType,
+      payType:"credit",
+      txnRef:credit.reference || null,
+      txnType:"credit",
+      receiptUrl:null,
+      invoiceUrl:null,
+    };
+    setEntries(p=>[entry,...p]);
+    setCounters(p=>({...p,[cKey]:n}));
+    setShowCredit(false);
+    showToast(`💰 Credit added: ${fmt(amount)}`,"success");
+    addLog(`✓ Credit created: ${txnId} ${fmt(amount)} from ${credit.receivedFrom}`,"ok");
+    if(scriptUrl){
+      setSyncStatus("syncing");
+      if(typeof showSyncFeedback === "function") showSyncFeedback("syncing","Saving credit",`Writing ${txnId} to Google Sheets`);
+      const r = await callScript("addEntry",{entry});
+      setSyncStatus(r.success?"ok":"fail");
+      if(typeof showSyncFeedback === "function") showSyncFeedback(r.success?"ok":"fail",r.success?"Credit saved":"Credit save failed",r.success?`${txnId} was saved as income.`:(r.error||"Could not save the credit."),r.success?3000:8000);
+      if(!r.success) showToast(`Credit sync failed: ${r.error}`,"warning");
+      if(r.success) await callScript("updateCounter",{key:cKey,value:n});
+      setTimeout(()=>setSyncStatus(null),3000);
+    }
+  };
+
   // Gold highlight for treasurer member names
   const isTreasurerMember=(name)=>treasurerMembers.includes(name);
   const MemberName=({name,style={}})=>isTreasurerMember(name)
@@ -3189,10 +3328,15 @@ export default function App() {
     }
     return true;
   });
-  const totalAmt   = filtered.reduce((s,e)=>s+e.amount,0);
-  const pendingAmt = filtered.filter(e=>e.status==="Pending").reduce((s,e)=>s+e.amount,0);
-  const reimAmt    = filtered.filter(e=>e.status==="Reimbursed").reduce((s,e)=>s+e.amount,0);
-  const sortedFiltered = [...filtered].sort((a,b)=>{
+  const filteredCredits = filtered.filter(isCreditEntry);
+  const filteredExpenses = filtered.filter(e=>!isCreditEntry(e));
+  const revenueAmt = filteredCredits.reduce((s,e)=>s+Number(e.amount||0),0);
+  const expenseAmt = filteredExpenses.reduce((s,e)=>s+Number(e.amount||0),0);
+  const totalAmt = expenseAmt;
+  const netPosition = revenueAmt - expenseAmt;
+  const pendingAmt = filteredExpenses.filter(e=>e.status==="Pending").reduce((s,e)=>s+e.amount,0);
+  const reimAmt    = filteredExpenses.filter(e=>e.status==="Reimbursed").reduce((s,e)=>s+e.amount,0);
+  const sortedFiltered = [...filteredExpenses].sort((a,b)=>{
     const dir = sortDir==="asc" ? 1 : -1;
     if(sortBy==="date"){
       return (new Date(a.date).getTime() - new Date(b.date).getTime()) * dir;
@@ -3206,13 +3350,13 @@ export default function App() {
     return aVal.localeCompare(bVal, "en", {numeric:true, sensitivity:"base"}) * dir;
   });
   const catBreakdownItems = Object.entries(
-    filtered.reduce(function(a,e){
+    filteredExpenses.reduce(function(a,e){
       var cl = e.category || (catByCode(e.categoryCode) && catByCode(e.categoryCode).label) || e.categoryCode || "Unknown";
       a[cl] = (a[cl]||0) + e.amount; return a;
     }, {})
   ).sort(function(a,b){return b[1]-a[1];});
   const memberBreakdownItems = Object.entries(
-    filtered.reduce(function(a,e){a[e.member]=(a[e.member]||0)+e.amount;return a;},{})
+    filteredExpenses.reduce(function(a,e){a[e.member]=(a[e.member]||0)+e.amount;return a;},{})
   ).sort(function(a,b){return b[1]-a[1];}).slice(0,7);
   // When a member filter is active, show their pending total prominently
   const memberFilterActive = fMember!=="all";
@@ -3223,8 +3367,9 @@ export default function App() {
   const curMonth = now.getMonth(); const curYear = now.getFullYear();
   const prevDate = new Date(curYear, curMonth - 1, 1);
   const prevMonth = prevDate.getMonth(); const prevYear = prevDate.getFullYear();
-  const curMonthEntries  = entries.filter(e=>{ const d=new Date(e.date); return d.getMonth()===curMonth&&d.getFullYear()===curYear; });
-  const prevMonthEntries = entries.filter(e=>{ const d=new Date(e.date); return d.getMonth()===prevMonth&&d.getFullYear()===prevYear; });
+  const expenseEntries = entries.filter(e=>!isCreditEntry(e));
+  const curMonthEntries  = expenseEntries.filter(e=>{ const d=new Date(e.date); return d.getMonth()===curMonth&&d.getFullYear()===curYear; });
+  const prevMonthEntries = expenseEntries.filter(e=>{ const d=new Date(e.date); return d.getMonth()===prevMonth&&d.getFullYear()===prevYear; });
   const curMonthTotal  = curMonthEntries.reduce((s,e)=>s+e.amount,0);
   const prevMonthTotal = prevMonthEntries.reduce((s,e)=>s+e.amount,0);
   const momDiff = curMonthTotal - prevMonthTotal;
@@ -3233,16 +3378,16 @@ export default function App() {
   // Recurring vs one-time split from filtered
   // An entry is recurring if it's in GNREC category OR matches keyword detection
   const isRecurringEntry = (e) => e.categoryCode==="GNREC" || !!detectRecurring(e.purpose,e.notes||"",e.subCategory||"");
-  const filteredRecurring  = filtered.filter(e=>isRecurringEntry(e));
-  const filteredOneTime    = filtered.filter(e=>!isRecurringEntry(e));
+  const filteredRecurring  = filteredExpenses.filter(e=>isRecurringEntry(e));
+  const filteredOneTime    = filteredExpenses.filter(e=>!isRecurringEntry(e));
   const recurringTotal     = filteredRecurring.reduce((s,e)=>s+e.amount,0);
   const oneTimeTotal       = filteredOneTime.reduce((s,e)=>s+e.amount,0);
 
   // Per-recurring-type MoM comparison (uses all entries, not just filtered, for accurate prev/cur month)
   const recurringMoM = RECURRING_TYPES.map(rt => {
     const matchFn = e => rt.keywords.some(k=>recurringMatchText(e.purpose,e.notes||"",e.subCategory||"").includes(k));
-    const curAmt  = entries.filter(e=>{ const d=new Date(e.date); return d.getMonth()===curMonth&&d.getFullYear()===curYear&&matchFn(e); }).reduce((s,e)=>s+e.amount,0);
-    const prevAmt = entries.filter(e=>{ const d=new Date(e.date); return d.getMonth()===prevMonth&&d.getFullYear()===prevYear&&matchFn(e); }).reduce((s,e)=>s+e.amount,0);
+    const curAmt  = expenseEntries.filter(e=>{ const d=new Date(e.date); return d.getMonth()===curMonth&&d.getFullYear()===curYear&&matchFn(e); }).reduce((s,e)=>s+e.amount,0);
+    const prevAmt = expenseEntries.filter(e=>{ const d=new Date(e.date); return d.getMonth()===prevMonth&&d.getFullYear()===prevYear&&matchFn(e); }).reduce((s,e)=>s+e.amount,0);
     const diff = curAmt - prevAmt;
     const pct  = prevAmt>0 ? Math.round((diff/prevAmt)*100) : null;
     return { ...rt, curAmt, prevAmt, diff, pct, hasData: curAmt>0||prevAmt>0 };
@@ -3359,8 +3504,8 @@ export default function App() {
   const BLUE_BTN={background:"linear-gradient(135deg,#1d4ed8,#2563eb)",color:"#fff",border:"none",borderRadius:12,padding:"11px 22px",fontFamily:"'DM Sans',sans-serif",fontWeight:800,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",gap:8,boxShadow:"0 4px 18px rgba(37,99,235,0.35)",transition:"all 0.2s"};
 
   const exportCSV=()=>{
-    const H=["Txn ID","Date","Member","Category","Amount","Purpose","UPI ID","Status","Notes","Event","Sub-Category"];
-    const R=filtered.map(e=>[e.txnId,e.date,e.member,e.category,e.amount,`"${e.purpose}"`,e.upiId,e.status,`"${e.notes||""}"`,events.find(ev=>ev.id===e.eventId)?.name||"",e.subCategory||""]);
+    const H=["Type","Txn ID","Date","Member/Received By","Category","Amount","Purpose","UPI ID / Ref","Status","Notes","Event","Sub-Category"];
+    const R=filtered.map(e=>[isCreditEntry(e)?"Credit":"Expense",e.txnId,e.date,e.member,e.category,e.amount,`"${e.purpose}"`,e.upiId,e.status,`"${e.notes||""}"`,events.find(ev=>ev.id===e.eventId)?.name||"",e.subCategory||""]);
     const csv=[H,...R].map(r=>r.join(",")).join("\n");
     const a=Object.assign(document.createElement("a"),{href:URL.createObjectURL(new Blob([csv],{type:"text/csv"})),download:`nandanam-${todayStr()}.csv`});
     a.click();
@@ -3388,18 +3533,18 @@ export default function App() {
     const dateRangeLabel=sortedDates.length
       ? `${sortedDates[0].toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"})} - ${sortedDates[sortedDates.length-1].toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"})}`
       : "No dated records";
-    const pendingCount=filtered.filter(e=>e.status==="Pending").length;
-    const reimbursedCount=filtered.filter(e=>e.status==="Reimbursed").length;
-    const attachmentCount=filtered.filter(e=>e.receiptUrl || e.receiptDataUrl || e.invoiceUrl || e.invoiceDataUrl).length;
-    const attachmentPct=filtered.length ? Math.round((attachmentCount/filtered.length)*100) : 0;
-    const avgAmount=filtered.length ? totalAmt/filtered.length : 0;
-    const largestExpense=filtered.reduce((max,e)=>!max || Number(e.amount)>Number(max.amount) ? e : max, null);
-    const topExpenses=[...filtered].sort((a,b)=>(Number(b.amount)||0)-(Number(a.amount)||0)).slice(0,5);
-    const catBreakdown=Object.entries(filtered.reduce((acc,entry)=>{
+    const pendingCount=filteredExpenses.filter(e=>e.status==="Pending").length;
+    const reimbursedCount=filteredExpenses.filter(e=>e.status==="Reimbursed").length;
+    const attachmentCount=filteredExpenses.filter(e=>e.receiptUrl || e.receiptDataUrl || e.invoiceUrl || e.invoiceDataUrl).length;
+    const attachmentPct=filteredExpenses.length ? Math.round((attachmentCount/filteredExpenses.length)*100) : 0;
+    const avgAmount=filteredExpenses.length ? totalAmt/filteredExpenses.length : 0;
+    const largestExpense=filteredExpenses.reduce((max,e)=>!max || Number(e.amount)>Number(max.amount) ? e : max, null);
+    const topExpenses=[...filteredExpenses].sort((a,b)=>(Number(b.amount)||0)-(Number(a.amount)||0)).slice(0,5);
+    const catBreakdown=Object.entries(filteredExpenses.reduce((acc,entry)=>{
       acc[entry.category]=(acc[entry.category]||0)+Number(entry.amount||0);
       return acc;
     },{})).sort((a,b)=>b[1]-a[1]);
-    const memberBreakdown=Object.entries(filtered.reduce((acc,entry)=>{
+    const memberBreakdown=Object.entries(filteredExpenses.reduce((acc,entry)=>{
       acc[entry.member]=(acc[entry.member]||0)+Number(entry.amount||0);
       return acc;
     },{})).sort((a,b)=>b[1]-a[1]);
@@ -3413,7 +3558,13 @@ export default function App() {
       fMember!=="all"?`Member: ${fMember}`:"",
     ].filter(Boolean).join(" · ")||"All Records";
 
-    const rows=filtered.map(e=>{
+    const incomeBreakdown=Object.entries(filteredCredits.reduce((acc,entry)=>{
+      const key=entry.subCategory || "Other Income";
+      acc[key]=(acc[key]||0)+Number(entry.amount||0);
+      return acc;
+    },{})).sort((a,b)=>b[1]-a[1]);
+
+    const rows=filteredExpenses.map(e=>{
       const ev=events.find(event=>event.id===e.eventId);
       const txnRef=esc(e.txnRef || e.upiId || e.chequeNo || "Not captured");
       const proofText=[
@@ -3442,6 +3593,17 @@ export default function App() {
       </tr>`;
     }).join("");
 
+    const incomeRows=filteredCredits.map(e=>`<tr>
+      <td>
+        <div class="main-text">${esc(e.subCategory || "Income")}</div>
+        <div class="txn-ref">${esc(e.txnId || "—")}</div>
+      </td>
+      <td class="date-cell">${formatDate(e.date)}</td>
+      <td>${esc(String(e.purpose || "").replace(/^.*?:\s*/,"") || "—")}</td>
+      <td>${esc(e.upiId || e.txnRef || "—")}</td>
+      <td class="amount-cell">${money(e.amount)}</td>
+    </tr>`).join("");
+
     const catRows=catBreakdown.map(([name,amt])=>{
       const pct=totalAmt?((amt/totalAmt)*100).toFixed(1):0;
       return `<tr>
@@ -3468,7 +3630,12 @@ export default function App() {
       </td>
       <td class="amount-cell">${money(entry.amount)}</td>
     </tr>`).join("");
-    const executiveSummary=`Period: ${dateRangeLabel} · Entries: ${filtered.length} · Total: ${money(totalAmt)} · Pending: ${money(pendingAmt)}`;
+    const incomeRowsByType=incomeBreakdown.map(([name,amt])=>`<tr>
+      <td>${esc(name)}</td>
+      <td class="amount-cell">${money(amt)}</td>
+      <td class="right">${revenueAmt?((amt/revenueAmt)*100).toFixed(1):0}%</td>
+    </tr>`).join("");
+    const executiveSummary=`Period: ${dateRangeLabel} · Expenses: ${money(totalAmt)} · Revenue: ${money(revenueAmt)} · Net: ${money(netPosition)} · Pending: ${money(pendingAmt)}`;
 
     const html=`<!DOCTYPE html>
 <html>
@@ -3570,7 +3737,7 @@ export default function App() {
         </div>
         <div class="meta-item">
           <div class="label">Attachment Coverage</div>
-          <div class="small">${attachmentCount} of ${filtered.length} entries have payment proof or invoice (${attachmentPct}%).</div>
+          <div class="small">${attachmentCount} of ${filteredExpenses.length} expense entries have payment proof or invoice (${attachmentPct}%).</div>
         </div>
       </div>
     </section>
@@ -3579,8 +3746,21 @@ export default function App() {
       <div class="stat">
         <div class="label">Total Expenses</div>
         <div class="value">${money(totalAmt)}</div>
-        <div class="small">${filtered.length} transaction${filtered.length!==1?"s":""}</div>
+        <div class="small">${filteredExpenses.length} expense transaction${filteredExpenses.length!==1?"s":""}</div>
       </div>
+      <div class="stat">
+        <div class="label">Revenue Generated</div>
+        <div class="value">${money(revenueAmt)}</div>
+        <div class="small">${filteredCredits.length} credit transaction${filteredCredits.length!==1?"s":""}</div>
+      </div>
+      <div class="stat">
+        <div class="label">Net Position</div>
+        <div class="value">${money(netPosition)}</div>
+        <div class="small">Revenue minus expenses</div>
+      </div>
+    </section>
+
+    <section class="grid-3">
       <div class="stat">
         <div class="label">Pending Reimbursement</div>
         <div class="value">${money(pendingAmt)}</div>
@@ -3591,6 +3771,22 @@ export default function App() {
         <div class="value">${money(reimAmt)}</div>
         <div class="small">${reimbursedCount} reimbursed entry${reimbursedCount!==1?"ies":"y"}</div>
       </div>
+    </section>
+
+    <section class="block">
+      <div class="section-title">Revenue Register</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Income Type / Txn</th>
+            <th>Date</th>
+            <th>Received From</th>
+            <th>Reference</th>
+            <th class="right">Amount</th>
+          </tr>
+        </thead>
+        <tbody>${incomeRows || '<tr><td colspan="5" class="small">No revenue credits match the selected filters</td></tr>'}</tbody>
+      </table>
     </section>
 
     <section class="grid-2">
@@ -3656,6 +3852,22 @@ export default function App() {
           <tbody>${catRows || '<tr><td colspan="3" class="small">No category data available</td></tr>'}</tbody>
         </table>
       </div>
+      <div class="block">
+        <div class="section-title">Revenue by Type</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Income Type</th>
+              <th class="right">Amount</th>
+              <th class="right">Share</th>
+            </tr>
+          </thead>
+          <tbody>${incomeRowsByType || '<tr><td colspan="3" class="small">No revenue data available</td></tr>'}</tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="grid-2">
       <div class="block">
         <div class="section-title">Breakdown by Member</div>
         <table>
@@ -3788,8 +4000,8 @@ export default function App() {
 
   // Annual totals (current year vs last year)
   const thisYear   = new Date().getFullYear();
-  const ytdTotal   = entries.filter(e=>new Date(e.date).getFullYear()===thisYear).reduce((s,e)=>s+e.amount,0);
-  const lastYrTotal= entries.filter(e=>new Date(e.date).getFullYear()===thisYear-1).reduce((s,e)=>s+e.amount,0);
+  const ytdTotal   = expenseEntries.filter(e=>new Date(e.date).getFullYear()===thisYear).reduce((s,e)=>s+e.amount,0);
+  const lastYrTotal= expenseEntries.filter(e=>new Date(e.date).getFullYear()===thisYear-1).reduce((s,e)=>s+e.amount,0);
   const ytdDiff    = ytdTotal - lastYrTotal;
 
   return (
@@ -4394,9 +4606,10 @@ export default function App() {
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:22}}>
               <div>
                 <h2 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:28,color:"#fbbf24",margin:0}}>Treasurer Dashboard</h2>
-                <p style={{color:"rgba(255,255,255,0.35)",fontSize:13,margin:"4px 0 0"}}>{filtered.length} entries · Click status badge to toggle reimbursement</p>
+                <p style={{color:"rgba(255,255,255,0.35)",fontSize:13,margin:"4px 0 0"}}>{filteredExpenses.length} expenses · {filteredCredits.length} credits · Click status badge to toggle reimbursement</p>
               </div>
-              <div style={{display:"flex",gap:10}}>
+              <div style={{display:"flex",gap:10,flexWrap:"wrap",justifyContent:"flex-end"}}>
+                <button onClick={()=>setShowCredit(true)} style={{...BLUE_BTN,background:"linear-gradient(135deg,#0f766e,#14b8a6)",boxShadow:"0 4px 18px rgba(20,184,166,0.3)"}}>💰 Add Credit</button>
                 <button onClick={exportCSV} style={BLUE_BTN}><Icon n="dl" s={15}/>Export CSV</button>
                 <button onClick={generatePDF} style={{...BLUE_BTN,background:"linear-gradient(135deg,#dc2626,#ef4444)",boxShadow:"0 4px 18px rgba(220,38,38,0.35)"}}>
                   <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
@@ -4435,9 +4648,12 @@ export default function App() {
               </div>
             )}
             <div className="stat-grid" style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:16}}>
-              <StatCard label="Total Expenses"        value={fmt(totalAmt)}   sub={`${filtered.length} transactions`}                            icon="trd" accent="#fbbf24"/>
-              <StatCard label="Pending Reimbursement" value={fmt(pendingAmt)} sub={`${filtered.filter(e=>e.status==="Pending").length} entries`}  icon="clk" accent="#f59e0b"/>
-              <StatCard label="Reimbursed"            value={fmt(reimAmt)}    sub={`${filtered.filter(e=>e.status==="Reimbursed").length} entries`} icon="chk" accent="#10b981"/>
+              <StatCard label="Total Expenses"        value={fmt(totalAmt)}   sub={`${filteredExpenses.length} expense transactions`}                            icon="trd" accent="#fbbf24"/>
+              <StatCard label="Revenue Generated"     value={fmt(revenueAmt)} sub={`${filteredCredits.length} credit transactions`} icon="chk" accent="#14b8a6"/>
+              <StatCard label="Net Position"          value={fmt(netPosition)} sub="Revenue minus expenses" icon="bar" accent={netPosition>=0?"#10b981":"#ef4444"}/>
+              <StatCard label="Pending Reimbursement" value={fmt(pendingAmt)} sub={`${filteredExpenses.filter(e=>e.status==="Pending").length} entries`}  icon="clk" accent="#f59e0b"/>
+              <StatCard label="Reimbursed"            value={fmt(reimAmt)}    sub={`${filteredExpenses.filter(e=>e.status==="Reimbursed").length} entries`} icon="chk" accent="#10b981"/>
+              <StatCard label="Credits Recorded"      value={String(filteredCredits.length)} sub={filteredCredits.length ? filteredCredits.map(e=>e.subCategory).filter(Boolean).slice(0,3).join(" · ") : "No credits in scope"} icon="store" accent="#2dd4bf"/>
             </div>
 
             {/* Annual YTD summary */}
@@ -4542,9 +4758,9 @@ export default function App() {
                 {v:fYear,  s:setFYear,  o:[["all","All Years"],  ...allYears.map(y=>[String(y),String(y)])]},
                 {v:fMonth, s:setFMonth, o:[["all","All Months"], ...MONTHS.map((m,i)=>[String(i),m])]},
                 {v:fStatus,s:setFStatus,o:[["all","All Status"],  ["Pending","Pending"],["Reimbursed","Reimbursed"]]},
-                {v:fCat,   s:setFCat,   o:[["all","All Categories"],...CATEGORIES.map(c=>[c.code,`${c.icon} ${c.code}`])]},
+                {v:fCat,   s:setFCat,   o:[["all","All Categories"],...[...CATEGORIES,INCOME_CATEGORY].map(c=>[c.code,`${c.icon} ${c.code}`])]},
                 {v:fEvent,    s:setFEvent,   o:[["all","All Events"],  ...events.map(e=>[e.id,e.name])]},
-                {v:fPayType,  s:setFPayType, o:[["all","All Types"],["upi","📱 UPI / Online"],["cash","💵 Cash"],["cheque","🧾 Cheque"],["netbanking","🏦 Net Banking"]]},
+                {v:fPayType,  s:setFPayType, o:[["all","All Types"],["upi","📱 UPI / Online"],["cash","💵 Cash"],["cheque","🧾 Cheque"],["netbanking","🏦 Net Banking"],["credit","💰 Credit / Income"]]},
               ].map(({v,s,o},i)=>(
                 <select key={i} value={v} onChange={e=>s(e.target.value)} style={{...INP,width:"auto",padding:"7px 11px",fontSize:12}}>
                   {o.map(([val,lbl])=><option key={val} value={val}>{lbl}</option>)}
@@ -4568,8 +4784,8 @@ export default function App() {
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
               <span style={{fontSize:12,color:"rgba(255,255,255,0.3)",fontWeight:600}}>
                 {groupedView
-                  ? `${filteredRecurring.length} recurring · ${filteredOneTime.length} one-time`
-                  : `${filtered.length} entries`}
+                  ? `${filteredRecurring.length} recurring · ${filteredOneTime.length} one-time · ${filteredCredits.length} credits`
+                  : `${filteredExpenses.length} expense entries · ${filteredCredits.length} credits`}
               </span>
               <div style={{display:"flex",gap:6,alignItems:"center"}}>
                 <button
@@ -4700,7 +4916,7 @@ export default function App() {
                         <TH/>
                         <tbody>
                           {sortedFiltered.length===0
-                            ? <tr><td colSpan={tableColSpan} style={{padding:"44px",textAlign:"center",color:"rgba(255,255,255,0.2)",fontSize:14}}>No entries match current filters</td></tr>
+                            ? <tr><td colSpan={tableColSpan} style={{padding:"44px",textAlign:"center",color:"rgba(255,255,255,0.2)",fontSize:14}}>No expense entries match current filters</td></tr>
                             : sortedFiltered.map(e=>{
                                 const rt=detectRecurring(e.purpose,e.notes||"",e.subCategory||"");
                                 return <EntryRow key={e.id} e={e} isRecurring={!!rt} recurType={rt}/>;
@@ -4799,12 +5015,12 @@ export default function App() {
                           <EntryRow key={e.id} e={e} isRecurring={false} recurType={null}/>
                         ))}
 
-                        {filtered.length===0&&(
+                        {filteredExpenses.length===0&&(
                           <tr>
                             <td colSpan={7} style={{padding:"26px"}}>
                               <EmptyStateCard
                                 icon="🧾"
-                                title="No entries match these filters"
+                                title="No expense entries match these filters"
                                 body="Try resetting one or two filters, or add a new expense if this month has not been recorded yet."
                                 actionLabel="Reset Filters"
                                 onAction={()=>{setFYear("all");setFMonth("all");setFStatus("all");setFCat("all");setFEvent("all");setFPayType("all");setFMember("all");setSearchQ("");}}
@@ -5065,6 +5281,7 @@ export default function App() {
         </div>
       )}
       {showBulk&&<BulkImportModal members={members} events={events} entries={entries} verifiedMember={verifiedMember} onImport={handleBulkImport} onClose={()=>setShowBulk(false)}/>}
+      {showCredit&&<CreditModal members={members} currentUser={authSession?.member || verifiedMember || ""} onSave={handleAddCredit} onClose={()=>setShowCredit(false)}/>}
       {showPin&&<PinModal onVerify={verifyTreasurerPinWithServer} onClose={()=>setShowPin(false)}/>}
       {showMemberPanel&&<MemberPanel members={members} memberPinStatus={memberPinStatus} onAdd={handleAddMember} onRemove={handleRemoveMember} onResetPin={handleResetMemberPin} onClose={()=>setShowMemberPanel(false)}/>}
       {showVendorPanel&&<VendorPanel vendors={vendors} onAdd={handleAddVendor} onRemove={handleRemoveVendor} onClose={()=>setShowVendorPanel(false)}/>}
