@@ -3336,7 +3336,7 @@ export default function App() {
   const netPosition = revenueAmt - expenseAmt;
   const pendingAmt = filteredExpenses.filter(e=>e.status==="Pending").reduce((s,e)=>s+e.amount,0);
   const reimAmt    = filteredExpenses.filter(e=>e.status==="Reimbursed").reduce((s,e)=>s+e.amount,0);
-  const sortedFiltered = [...filteredExpenses].sort((a,b)=>{
+  const sortedVisibleEntries = [...filtered].sort((a,b)=>{
     const dir = sortDir==="asc" ? 1 : -1;
     if(sortBy==="date"){
       return (new Date(a.date).getTime() - new Date(b.date).getTime()) * dir;
@@ -4784,8 +4784,8 @@ export default function App() {
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
               <span style={{fontSize:12,color:"rgba(255,255,255,0.3)",fontWeight:600}}>
                 {groupedView
-                  ? `${filteredRecurring.length} recurring · ${filteredOneTime.length} one-time · ${filteredCredits.length} credits`
-                  : `${filteredExpenses.length} expense entries · ${filteredCredits.length} credits`}
+                  ? `${filteredRecurring.length} recurring debits · ${filteredOneTime.length} one-time debits · ${filteredCredits.length} credits`
+                  : `${filtered.length} transactions · ${filteredCredits.length} credits`}
               </span>
               <div style={{display:"flex",gap:6,alignItems:"center"}}>
                 <button
@@ -4820,6 +4820,7 @@ export default function App() {
                   const EntryRow = ({e, isRecurring, recurType})=>{
                     const cat=catByCode(e.categoryCode||"GNMI");
                     const ev=events.find(ev=>ev.id===e.eventId);
+                    const isCredit = isCreditEntry(e);
                     const [copied,setCopied] = useState(false);
                     const copyTxn=()=>{
                       try{navigator.clipboard.writeText(e.txnId).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),1500);});}catch{}
@@ -4828,13 +4829,16 @@ export default function App() {
                       <tr key={e.id} className="rh" style={{
                         borderBottom:"1px solid rgba(255,255,255,0.04)",
                         transition:"background 0.15s",
-                        background: isRecurring ? "rgba(139,92,246,0.04)" : "transparent",
-                        borderLeft: isRecurring ? `3px solid ${recurType?.color||"#a78bfa"}` : "3px solid transparent",
+                        background: isCredit ? "rgba(20,184,166,0.05)" : (isRecurring ? "rgba(139,92,246,0.04)" : "transparent"),
+                        borderLeft: isCredit ? "3px solid rgba(20,184,166,0.45)" : (isRecurring ? `3px solid ${recurType?.color||"#a78bfa"}` : "3px solid transparent"),
                       }}>
                         <td style={{padding:"12px 15px"}}>
                           <div onClick={copyTxn} title="Click to copy" style={{fontFamily:"monospace",fontSize:12,color:copied?"#10b981":"#fbbf24",fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
                             {e.txnId}
                             <span style={{fontSize:9,opacity:0.5}}>{copied?"✓":"⎘"}</span>
+                          </div>
+                          <div style={{display:"inline-flex",alignItems:"center",gap:4,background:isCredit?"rgba(20,184,166,0.14)":"rgba(251,191,36,0.1)",color:isCredit?"#5eead4":"#fbbf24",border:`1px solid ${isCredit?"rgba(20,184,166,0.28)":"rgba(251,191,36,0.22)"}`,borderRadius:5,fontSize:10,fontWeight:800,padding:"1px 6px",marginTop:3,textTransform:"uppercase",letterSpacing:"0.04em"}}>
+                            {isCredit ? "Credit" : "Debit"}
                           </div>
                           {isRecurring && recurType && (
                             <div style={{display:"inline-flex",alignItems:"center",gap:4,background:`${recurType.color}18`,color:recurType.color,border:`1px solid ${recurType.color}35`,borderRadius:5,fontSize:10,fontWeight:700,padding:"1px 6px",marginTop:3}}>
@@ -4865,7 +4869,7 @@ export default function App() {
                           <div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.purpose}</div>
                           {e.notes&&<div style={{fontSize:11,color:"rgba(255,255,255,0.3)",marginTop:1}}>{e.notes}</div>}
                         </td>
-                        <td style={{padding:"12px 15px",fontSize:15,fontWeight:800,color:isRecurring?"#c4b5fd":"#fff",whiteSpace:"nowrap"}}>{fmt(e.amount)}</td>
+                        <td style={{padding:"12px 15px",fontSize:15,fontWeight:800,color:isCredit?"#34d399":(isRecurring?"#c4b5fd":"#fff"),whiteSpace:"nowrap"}}>{fmt(e.amount)}</td>
                         <td style={{padding:"8px 10px",textAlign:"center"}}>
                           {(e.receiptUrl||e.receiptDataUrl||e.invoiceUrl||e.invoiceDataUrl) ? (
                             <button
@@ -4915,11 +4919,11 @@ export default function App() {
                       <table style={{width:"100%",borderCollapse:"collapse",minWidth:820}}>
                         <TH/>
                         <tbody>
-                          {sortedFiltered.length===0
-                            ? <tr><td colSpan={tableColSpan} style={{padding:"44px",textAlign:"center",color:"rgba(255,255,255,0.2)",fontSize:14}}>No expense entries match current filters</td></tr>
-                            : sortedFiltered.map(e=>{
+                          {sortedVisibleEntries.length===0
+                            ? <tr><td colSpan={tableColSpan} style={{padding:"44px",textAlign:"center",color:"rgba(255,255,255,0.2)",fontSize:14}}>No transactions match current filters</td></tr>
+                            : sortedVisibleEntries.map(e=>{
                                 const rt=detectRecurring(e.purpose,e.notes||"",e.subCategory||"");
-                                return <EntryRow key={e.id} e={e} isRecurring={!!rt} recurType={rt}/>;
+                                return <EntryRow key={e.id} e={e} isRecurring={!isCreditEntry(e) && !!rt} recurType={rt}/>;
                               })
                           }
                         </tbody>
@@ -5015,13 +5019,30 @@ export default function App() {
                           <EntryRow key={e.id} e={e} isRecurring={false} recurType={null}/>
                         ))}
 
-                        {filteredExpenses.length===0&&(
+                        {filteredCredits.length>0&&(
+                          <tr>
+                            <td colSpan={7} style={{padding:"12px 15px",background:"rgba(20,184,166,0.08)",borderTop:"2px solid rgba(20,184,166,0.4)",borderBottom:"1px solid rgba(20,184,166,0.2)"}}>
+                              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                                <span style={{fontSize:12,fontWeight:800,color:"#5eead4",textTransform:"uppercase",letterSpacing:"0.1em"}}>💰 Credit / Income Transactions</span>
+                                <div style={{display:"flex",alignItems:"center",gap:16}}>
+                                  <span style={{fontSize:11,color:"rgba(94,234,212,0.7)"}}>{filteredCredits.length} entries</span>
+                                  <span style={{fontSize:14,fontWeight:800,color:"#5eead4"}}>{fmt(revenueAmt)}</span>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                        {filteredCredits.map(e=>(
+                          <EntryRow key={e.id} e={e} isRecurring={false} recurType={null}/>
+                        ))}
+
+                        {filtered.length===0&&(
                           <tr>
                             <td colSpan={7} style={{padding:"26px"}}>
                               <EmptyStateCard
                                 icon="🧾"
-                                title="No expense entries match these filters"
-                                body="Try resetting one or two filters, or add a new expense if this month has not been recorded yet."
+                                title="No transactions match these filters"
+                                body="Try resetting one or two filters, or add a new debit or credit entry if this period has not been recorded yet."
                                 actionLabel="Reset Filters"
                                 onAction={()=>{setFYear("all");setFMonth("all");setFStatus("all");setFCat("all");setFEvent("all");setFPayType("all");setFMember("all");setSearchQ("");}}
                                 tone="blue"
