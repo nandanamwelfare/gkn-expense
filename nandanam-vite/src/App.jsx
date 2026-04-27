@@ -1782,7 +1782,7 @@ function TxnsView({entries, events, verifiedMember, isTreasurer, isTreasurerMemb
   const [searchQ,  setSearchQ]  = useState("");
   const [fCat,     setFCat]     = useState("all");
   const [fMonth,   setFMonth]   = useState("all");
-  const [fYear,    setFYear]    = useState(String(new Date().getFullYear()));
+  const [fYear,    setFYear]    = useState("all");
   const [fStatus,  setFStatus]  = useState("all");
   const [fEvent,   setFEvent]   = useState("all");
   const [fPayType, setFPayType] = useState("all");
@@ -1799,6 +1799,24 @@ function TxnsView({entries, events, verifiedMember, isTreasurer, isTreasurerMemb
     setSortBy(nextKey);
     setSortDir(nextKey==="date" || nextKey==="amount" ? "desc" : "asc");
   };
+
+  const resetReadOnlyFilters = ()=>{
+    setSearchQ("");
+    setFYear("all");
+    setFMonth("all");
+    setFCat("all");
+    setFStatus("all");
+    setFEvent("all");
+    setFPayType("all");
+    setFMember("all");
+    setSortBy("date");
+    setSortDir("desc");
+    setHighlight(true);
+  };
+
+  useEffect(()=>{
+    resetReadOnlyFilters();
+  },[verifiedMember]);
 
   const filtered = entries.filter(e=>{
     const dt = new Date(e.date);
@@ -1911,7 +1929,7 @@ function TxnsView({entries, events, verifiedMember, isTreasurer, isTreasurerMemb
               {opts.map(([v,l])=><option key={v} value={v}>{l}</option>)}
             </select>
           ))}
-          <button onClick={()=>{setSearchQ("");setFYear(String(new Date().getFullYear()));setFMonth("all");setFCat("all");setFStatus("all");setFEvent("all");setFPayType("all");setFMember("all");}}
+          <button onClick={resetReadOnlyFilters}
             style={{...INP,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:4,
               background:"rgba(255,255,255,0.04)",gridColumn:mob?"span 2":undefined}}>
             <Icon n="ref" s={11}/>{mob?" Reset":"Reset"}
@@ -4111,17 +4129,18 @@ export default function App() {
       )}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700;800&family=DM+Sans:wght@400;500;600;700;800&display=swap');
-        *{box-sizing:border-box;}
-        body,html{margin:0;padding:0;overflow-x:hidden;}
+        *{box-sizing:border-box;scrollbar-width:thin;scrollbar-color:rgba(251,191,36,0.88) rgba(255,255,255,0.08);}
+        body,html{margin:0;padding:0;overflow-x:hidden;overflow-y:scroll;scrollbar-gutter:stable both-edges;}
         input:focus,select:focus,textarea:focus{border-color:#fbbf24!important;}
         @keyframes slideUp{from{transform:translateY(16px);opacity:0}to{transform:translateY(0);opacity:1}}
         @keyframes spin{to{transform:rotate(360deg)}}
         .rh:hover{background:rgba(251,191,36,0.04)!important;}
         .nt{transition:all 0.2s;}
         select option{background:#0a1628;color:#fff;}
-        ::-webkit-scrollbar{width:5px;height:5px;}
-        ::-webkit-scrollbar-track{background:rgba(255,255,255,0.03);}
-        ::-webkit-scrollbar-thumb{background:rgba(251,191,36,0.35);border-radius:3px;}
+        ::-webkit-scrollbar{width:12px;height:12px;}
+        ::-webkit-scrollbar-track{background:rgba(255,255,255,0.06);}
+        ::-webkit-scrollbar-thumb{background:linear-gradient(180deg,rgba(251,191,36,0.96),rgba(245,158,11,0.9));border-radius:999px;border:2px solid rgba(6,13,26,0.9);}
+        ::-webkit-scrollbar-thumb:hover{background:linear-gradient(180deg,rgba(252,211,77,1),rgba(249,115,22,0.96));}
         /* ── Table scroll ── */
         .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
         .tbl-wrap table{min-width:680px;}
