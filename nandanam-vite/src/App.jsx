@@ -182,6 +182,7 @@ const catByCode  = (code)  => code === INCOME_CATEGORY.code ? INCOME_CATEGORY : 
 const catByLabel = (label) => CATEGORIES.find(c=>c.label===label) || CATEGORIES[4];
 const SUBMIT_DRAFT_KEY = "nandanam_submit_draft_v1";
 const INSTALL_BANNER_KEY = "nandanam_install_banner_hidden_v1";
+const RELEASE_NOTICE_SEEN_KEY = "nandanam_release_notice_seen_v1";
 
 /* ═══════════════════════════════════════════════════════════
    SAMPLE DATA
@@ -1783,9 +1784,21 @@ function TxnsView({entries, events, verifiedMember, isTreasurer, isTreasurerMemb
   const [fMonth,   setFMonth]   = useState("all");
   const [fYear,    setFYear]    = useState(String(new Date().getFullYear()));
   const [fStatus,  setFStatus]  = useState("all");
+  const [fEvent,   setFEvent]   = useState("all");
+  const [fPayType, setFPayType] = useState("all");
+  const [fMember,  setFMember]  = useState("all");
+  const [sortBy,   setSortBy]   = useState("date");
+  const [sortDir,  setSortDir]  = useState("desc");
   const [highlight,setHighlight]= useState(true); // highlight own entries
 
   const allYears = [...new Set(entries.map(e=>new Date(e.date).getFullYear()))].sort((a,b)=>b-a);
+  const allMembers = [...new Set(entries.map(e=>String(e.member||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"en",{sensitivity:"base"}));
+
+  const toggleSort=(nextKey)=>{
+    if(sortBy===nextKey){ setSortDir(d=>d==="asc"?"desc":"asc"); return; }
+    setSortBy(nextKey);
+    setSortDir(nextKey==="date" || nextKey==="amount" ? "desc" : "asc");
+  };
 
   const filtered = entries.filter(e=>{
     const dt = new Date(e.date);
@@ -1793,12 +1806,28 @@ function TxnsView({entries, events, verifiedMember, isTreasurer, isTreasurerMemb
     if(fMonth!=="all"  && dt.getMonth()!==Number(fMonth))     return false;
     if(fCat!=="all"    && e.categoryCode!==fCat)              return false;
     if(fStatus!=="all" && e.status!==fStatus)                 return false;
+    if(fEvent!=="all"  && e.eventId!==fEvent)                 return false;
+    if(fPayType!=="all"&& (e.payType || (isCreditEntry(e) ? "credit" : "upi"))!==fPayType) return false;
+    if(fMember!=="all" && e.member!==fMember)                 return false;
     if(searchQ.trim()){
       const q = searchQ.toLowerCase();
       if(!`${e.txnId} ${e.purpose} ${e.member} ${e.amount} ${(e.category||catByCode(e.categoryCode).label||e.categoryCode||"Unknown")}`.toLowerCase().includes(q)) return false;
     }
     return true;
-  }).sort((a,b)=>new Date(b.date)-new Date(a.date));
+  });
+  const sortedFiltered = [...filtered].sort((a,b)=>{
+    const dir = sortDir==="asc" ? 1 : -1;
+    if(sortBy==="date"){
+      return (new Date(a.date).getTime() - new Date(b.date).getTime()) * dir;
+    }
+    if(sortBy==="amount"){
+      return ((Number(a.amount)||0) - (Number(b.amount)||0)) * dir;
+    }
+    const toText=(value)=>String(value||"").toLowerCase();
+    const aVal = sortBy==="category" ? toText(a.categoryCode || a.category) : toText(a[sortBy]);
+    const bVal = sortBy==="category" ? toText(b.categoryCode || b.category) : toText(b[sortBy]);
+    return aVal.localeCompare(bVal, "en", {numeric:true, sensitivity:"base"}) * dir;
+  });
 
   const totalAmt   = filtered.reduce((s,e)=>s+e.amount,0);
   const myEntries  = filtered.filter(e=>e.member===verifiedMember);
@@ -1867,19 +1896,22 @@ function TxnsView({entries, events, verifiedMember, isTreasurer, isTreasurerMemb
           )}
         </div>
         {/* Filters — 2-col on mobile, single row on desktop */}
-        <div style={{display:"grid",gridTemplateColumns:mob?"1fr 1fr":"repeat(4,1fr) auto auto",gap:6,alignItems:"center"}}>
+        <div style={{display:"grid",gridTemplateColumns:mob?"1fr 1fr":"repeat(4,minmax(0,1fr))",gap:6,alignItems:"center"}}>
           {[
             {val:fYear,   set:setFYear,   opts:[["all","All Years"],   ...allYears.map(y=>[String(y),String(y)])]},
             {val:fMonth,  set:setFMonth,  opts:[["all","All Months"],  ...MONTHS.map((m,i)=>[String(i),m])]},
-            {val:fCat,    set:setFCat,    opts:[["all","All Cat"],      ...CATEGORIES.map(c=>[c.code,`${c.icon} ${c.label}`])]},
+            {val:fCat,    set:setFCat,    opts:[["all","All Cat"],      ...[...CATEGORIES,INCOME_CATEGORY].map(c=>[c.code,`${c.icon} ${c.label}`])]},
             {val:fStatus, set:setFStatus, opts:[["all","All Status"],   ["Pending","⏳ Pending"],["Reimbursed","✅ Reimbursed"]]},
+            {val:fEvent,  set:setFEvent,  opts:[["all","All Events"],   ...events.map(ev=>[ev.id,ev.name])]},
+            {val:fPayType,set:setFPayType,opts:[["all","All Types"],["upi","📱 UPI / Online"],["cash","💵 Cash"],["cheque","🧾 Cheque"],["netbanking","🏦 Net Banking"],["credit","💰 Credit / Income"]]},
+            {val:fMember, set:setFMember, opts:[["all","All Members"],  ...allMembers.map(m=>[m,m])]},
           ].map(({val,set,opts},i)=>(
             <select key={i} value={val} onChange={e=>set(e.target.value)}
               style={{...INP,width:"100%",boxSizing:"border-box",fontSize:mob?11:12}}>
               {opts.map(([v,l])=><option key={v} value={v}>{l}</option>)}
             </select>
           ))}
-          <button onClick={()=>{setSearchQ("");setFYear(String(new Date().getFullYear()));setFMonth("all");setFCat("all");setFStatus("all");}}
+          <button onClick={()=>{setSearchQ("");setFYear(String(new Date().getFullYear()));setFMonth("all");setFCat("all");setFStatus("all");setFEvent("all");setFPayType("all");setFMember("all");}}
             style={{...INP,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:4,
               background:"rgba(255,255,255,0.04)",gridColumn:mob?"span 2":undefined}}>
             <Icon n="ref" s={11}/>{mob?" Reset":"Reset"}
@@ -1897,23 +1929,40 @@ function TxnsView({entries, events, verifiedMember, isTreasurer, isTreasurerMemb
           <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
             <thead>
               <tr style={{borderBottom:"1px solid rgba(251,191,36,0.12)"}}>
-                {["Txn ID","Date","Member","Category","Purpose","Amount","Status","📎"].map(h=>(
+                {[
+                  {label:"Txn ID", key:"txnId"},
+                  {label:"Date", key:"date"},
+                  {label:"Member", key:"member"},
+                  {label:"Category", key:"category"},
+                  {label:"Purpose", key:"purpose"},
+                  {label:"Amount", key:"amount"},
+                  {label:"Status", key:"status"},
+                  {label:"📎", key:null},
+                ].map(h=>(
                   <th key={h} style={{padding:"11px 14px",textAlign:"left",fontSize:10,
                     fontWeight:700,color:"rgba(251,191,36,0.5)",textTransform:"uppercase",
-                    letterSpacing:"0.08em",whiteSpace:"nowrap"}}>{h}</th>
+                    letterSpacing:"0.08em",whiteSpace:"nowrap"}}>
+                    {h.key ? (
+                      <button className={`sort-btn ${sortBy===h.key ? "active" : ""}`} onClick={()=>toggleSort(h.key)} title={`Sort by ${h.label}`}>
+                        <span>{h.label}</span>
+                        <span className="sort-ind">{sortBy===h.key ? (sortDir==="asc" ? "▲" : "▼") : "↕"}</span>
+                      </button>
+                    ) : h.label}
+                  </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {filtered.length===0 ? (
+              {sortedFiltered.length===0 ? (
                 <tr><td colSpan={8} style={{padding:"44px",textAlign:"center",
                   color:"rgba(255,255,255,0.2)",fontSize:14}}>
                   No transactions match the current filters
                 </td></tr>
-              ) : filtered.map(e=>{
+              ) : sortedFiltered.map(e=>{
                 const cat    = catByCode(e.categoryCode||"GNMI");
                 const ev     = events.find(ev=>ev.id===e.eventId);
                 const isMe   = e.member===verifiedMember;
+                const isCredit = isCreditEntry(e);
                 const rowBg  = highlight && isMe
                   ? "rgba(251,191,36,0.05)" : "transparent";
                 const rowBorderLeft = highlight && isMe
@@ -1927,6 +1976,9 @@ function TxnsView({entries, events, verifiedMember, isTreasurer, isTreasurerMemb
                     <td style={{padding:"11px 14px"}}>
                       <div style={{fontFamily:"monospace",fontSize:11,color:isMe?"#fbbf24":"rgba(255,255,255,0.45)",fontWeight:700}}>
                         {e.txnId}
+                      </div>
+                      <div style={{display:"inline-flex",alignItems:"center",gap:4,background:isCredit?"rgba(20,184,166,0.14)":"rgba(251,191,36,0.08)",color:isCredit?"#5eead4":"#fbbf24",border:`1px solid ${isCredit?"rgba(20,184,166,0.28)":"rgba(251,191,36,0.16)"}`,borderRadius:5,fontSize:9,fontWeight:800,padding:"1px 6px",marginTop:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>
+                        {isCredit ? "Credit" : "Debit"}
                       </div>
                       {ev&&<div style={{fontSize:10,color:"#d946ef",marginTop:2}}>🎉 {ev.name}</div>}
                       {isMe&&highlight&&(
@@ -1983,7 +2035,7 @@ function TxnsView({entries, events, verifiedMember, isTreasurer, isTreasurerMemb
 
                     {/* Amount */}
                     <td style={{padding:"11px 14px",fontWeight:800,fontSize:14,
-                      color:isMe?"#fbbf24":"rgba(255,255,255,0.85)",whiteSpace:"nowrap"}}>
+                      color:isCredit?"#34d399":(isMe?"#fbbf24":"rgba(255,255,255,0.85)"),whiteSpace:"nowrap"}}>
                       {fmt(e.amount)}
                     </td>
 
@@ -2633,6 +2685,33 @@ function EditEntryModal({entry,members,events,categories,onSave,onClose}) {
   );
 }
 
+function ReleaseNoticeBanner({notice,onClose}) {
+  if(!notice) return null;
+  return (
+    <div style={{maxWidth:1100,margin:"14px auto 0",padding:"0 24px"}}>
+      <div style={{background:"linear-gradient(135deg,rgba(29,78,216,0.18),rgba(16,185,129,0.12))",border:"1px solid rgba(94,234,212,0.24)",borderRadius:16,padding:"14px 16px",display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:14,flexWrap:"wrap",boxShadow:"0 10px 30px rgba(0,0,0,0.22)"}}>
+        <div style={{display:"flex",alignItems:"flex-start",gap:12,flex:"1 1 420px",minWidth:0}}>
+          <div style={{width:38,height:38,borderRadius:12,background:"rgba(94,234,212,0.14)",border:"1px solid rgba(94,234,212,0.25)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>📣</div>
+          <div style={{minWidth:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              <div style={{fontSize:12,fontWeight:900,color:"#5eead4",textTransform:"uppercase",letterSpacing:"0.08em"}}>{notice.title || "What’s New"}</div>
+              {notice.version&&<span style={{background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.12)",color:"rgba(255,255,255,0.82)",borderRadius:999,padding:"3px 8px",fontSize:10,fontWeight:800,letterSpacing:"0.04em"}}>{notice.version}</span>}
+            </div>
+            <div style={{fontSize:13,color:"rgba(255,255,255,0.78)",marginTop:5,lineHeight:1.55,whiteSpace:"pre-line"}}>
+              {notice.message || "A new version is available."}
+            </div>
+          </div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
+          <button onClick={onClose} style={{background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.14)",color:"#fff",borderRadius:10,padding:"9px 14px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:12}}>
+            Got it
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CreditModal({members, currentUser, onSave, onClose}) {
   const [form,setForm] = useState({
     amount:"",
@@ -2749,6 +2828,8 @@ export default function App() {
   const [installPromptEvent,setInstallPromptEvent] = useState(null);
   const [installMode,setInstallMode] = useState(null);
   const [installBannerHidden,setInstallBannerHidden] = useState(()=>{try{return localStorage.getItem(INSTALL_BANNER_KEY)==="1";}catch{return false;}});
+  const [releaseNotice,setReleaseNotice] = useState(null);
+  const [showReleaseNotice,setShowReleaseNotice] = useState(false);
 
   // PIN + access control
   const [authSession,setAuthSession] = useState(initialAuth);
@@ -2946,6 +3027,15 @@ export default function App() {
           setMemberPinStatus(Object.fromEntries(Object.keys(d.memberPins).map(name=>[name, !!d.memberPins[name]])));
         }
         if(d.treasurerMembers)setTreasurerMembers(d.treasurerMembers);
+        if(hasSession && d.releaseNotice && d.releaseNotice.enabled && d.releaseNotice.version){
+          setReleaseNotice(d.releaseNotice);
+          let seenVersion = "";
+          try{seenVersion = localStorage.getItem(RELEASE_NOTICE_SEEN_KEY) || "";}catch{}
+          setShowReleaseNotice(seenVersion !== d.releaseNotice.version);
+        }else if(!hasSession){
+          setReleaseNotice(null);
+          setShowReleaseNotice(false);
+        }
         setDbReady(true);
         if(bootstrapOnly){
           addLog(`✓ Loaded ${d.members?.length||0} members for sign-in`, "ok");
@@ -3009,6 +3099,12 @@ export default function App() {
   const dismissInstallBanner=()=>{
     setInstallBannerHidden(true);
     try{localStorage.setItem(INSTALL_BANNER_KEY,"1");}catch{}
+  };
+  const dismissReleaseNotice=()=>{
+    if(releaseNotice?.version){
+      try{localStorage.setItem(RELEASE_NOTICE_SEEN_KEY, releaseNotice.version);}catch{}
+    }
+    setShowReleaseNotice(false);
   };
 
   const triggerInstallPrompt=async()=>{
@@ -4240,6 +4336,12 @@ export default function App() {
           mode={installMode}
           onInstall={installMode==="prompt" ? triggerInstallPrompt : null}
           onClose={dismissInstallBanner}
+        />
+      )}
+      {showReleaseNotice && !!(verifiedMember || isTreasurer) && (
+        <ReleaseNoticeBanner
+          notice={releaseNotice}
+          onClose={dismissReleaseNotice}
         />
       )}
 
