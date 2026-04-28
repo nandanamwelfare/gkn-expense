@@ -2979,11 +2979,12 @@ export default function App() {
     }catch(e){addLog(`✗ ${action} network: ${e.message}`,"error");return{success:false,error:e.message};}
   };
 
-  const loadFromSheet=async(url, sessionOverride)=>{
+  const loadFromSheet=async(url, sessionOverride, options={})=>{
     const u=url||scriptUrl;
     if(!u){addLog("loadFromSheet — no URL","warn");return;}
     const session = sessionOverride===undefined ? authSession : sessionOverride;
     const hasSession = !!session?.token;
+    const allowEmptyRetry = options.allowEmptyRetry !== false;
     const action = hasSession ? "getData" : "getBootstrap";
     const fetchRemote = async(requestAction, requestSession)=> {
       const r = await fetch(u,{
@@ -3025,6 +3026,11 @@ export default function App() {
         }
       }
       if(d.success){
+        if(hasSession && allowEmptyRetry && Array.isArray(d.entries) && d.entries.length===0){
+          addLog("Authenticated load returned 0 entries — retrying once","warn");
+          await new Promise(resolve=>setTimeout(resolve,350));
+          d = await fetchRemote("getData", session);
+        }
         const bootstrapOnly = !Array.isArray(d.entries);
         if(bootstrapOnly){
           setEntries([]);
@@ -3059,6 +3065,9 @@ export default function App() {
           addLog(`✓ Loaded ${d.members?.length||0} members for sign-in`, "ok");
         }else{
           addLog(`✓ Loaded ${d.entries?.length||0} entries, ${d.events?.length||0} events, ${d.members?.length||0} members`, "ok");
+          if(hasSession && (d.entries?.length||0)===0){
+            addLog("Authenticated session still has 0 entries after retry. The live Apps Script deployment may still be returning member-trimmed data.","warn");
+          }
         }
       }else{
         addLog(`✗ loadFromSheet: ${d.error}`,"error");
@@ -4698,6 +4707,7 @@ export default function App() {
               <div style={{flex:1,height:1,background:"rgba(255,255,255,0.07)"}}/>
             </div>
             <TxnsView
+              key={`community-${verifiedMember || "guest"}-${entries.length > 0 ? "data" : "empty"}`}
               entries={entries}
               events={events}
               verifiedMember={verifiedMember}
