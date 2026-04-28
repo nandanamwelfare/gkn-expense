@@ -2836,7 +2836,23 @@ export default function App() {
   const [members,setMembers]   = useState(DEFAULT_MEMBERS);
   const [vendors,setVendors]   = useState(DEFAULT_VENDORS);
   const DEFAULT_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzX9p5g7y_tVXHS8vP3Jmnghtwd81-pac2aTIcdU5bv3xndg0kizHVf3W2UWleZlu--4w/exec";
-  const [scriptUrl,setScriptUrl] = useState(()=>{try{return localStorage.getItem("nandanam_script_url")||DEFAULT_SCRIPT_URL;}catch{return DEFAULT_SCRIPT_URL;}});
+  const PROD_HOSTS = new Set(["gkn-expense.pages.dev"]);
+  const readScriptUrl = ()=>{
+    try{
+      const host = window.location.hostname || "";
+      const stored = localStorage.getItem("nandanam_script_url") || "";
+      if(PROD_HOSTS.has(host)){
+        if(stored !== DEFAULT_SCRIPT_URL){
+          localStorage.setItem("nandanam_script_url", DEFAULT_SCRIPT_URL);
+        }
+        return DEFAULT_SCRIPT_URL;
+      }
+      return stored || DEFAULT_SCRIPT_URL;
+    }catch{
+      return DEFAULT_SCRIPT_URL;
+    }
+  };
+  const [scriptUrl,setScriptUrl] = useState(readScriptUrl);
   const [showSheets,setShowSheets]     = useState(false);
   const [showCreateEv,setShowCreateEv] = useState(false);
   const [confirmDeleteEv,setConfirmDeleteEv] = useState(null); // event object to delete
