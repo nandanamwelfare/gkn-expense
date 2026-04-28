@@ -2861,7 +2861,7 @@ export default function App() {
   const [counters,setCounters] = useState({});
   const [members,setMembers]   = useState(DEFAULT_MEMBERS);
   const [vendors,setVendors]   = useState(DEFAULT_VENDORS);
-  const DEFAULT_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzX9p5g7y_tVXHS8vP3Jmnghtwd81-pac2aTIcdU5bv3xndg0kizHVf3W2UWleZlu--4w/exec";
+  const DEFAULT_SCRIPT_URL = "https://script.google.com/macros/s/AKfycby-4LzBzK5cjDd6daiaIXlmAFWSPAKSKILqpH8sNybWB9mKittFY8rHUsJvQfO5rqHJ/exec";
   const PROD_HOSTS = new Set(["gkn-expense.pages.dev"]);
   const currentHost = typeof window !== "undefined" ? (window.location.hostname || "") : "";
   const isProductionHost = PROD_HOSTS.has(currentHost);
