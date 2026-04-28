@@ -426,11 +426,12 @@ function CatInfo({cat}) {
 /* ═══════════════════════════════════════════════════════════
    MODALS
 ═══════════════════════════════════════════════════════════ */
-function ScriptModal({current, onSave, onClose}) {
-  const [url,setUrl]       = useState(current||"");
+function ScriptModal({current, defaultUrl, productionLocked, onSave, onClose}) {
+  const [url,setUrl]       = useState(current||defaultUrl||"");
   const [testing,setTesting]=useState(false);
   const [testResult,setTestResult]=useState(null);
   const inp={width:"100%",background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"10px 14px",color:"#fff",fontSize:12,fontFamily:"monospace",outline:"none",boxSizing:"border-box"};
+  const usingOverride = !productionLocked && !!defaultUrl && !!url && url !== defaultUrl;
 
   const testConnection=async()=>{
     if(!url){setTestResult({ok:false,msg:"Paste your script URL first"});return;}
@@ -452,17 +453,37 @@ function ScriptModal({current, onSave, onClose}) {
           <button onClick={onClose} style={{background:"none",border:"none",color:"#aaa",cursor:"pointer"}}><Icon n="x"/></button>
         </div>
 
-        <div style={{background:"rgba(16,185,129,0.08)",border:"1px solid rgba(16,185,129,0.2)",borderRadius:12,padding:14,marginBottom:18}}>
-          <div style={{fontSize:12,color:"#10b981",fontWeight:700,marginBottom:6}}>📋 Follow the setup guide — then paste your URL below</div>
+        <div style={{background:productionLocked?"rgba(59,130,246,0.12)":"rgba(16,185,129,0.08)",border:`1px solid ${productionLocked?"rgba(59,130,246,0.28)":"rgba(16,185,129,0.2)"}`,borderRadius:12,padding:14,marginBottom:18}}>
+          <div style={{fontSize:12,color:productionLocked?"#93c5fd":"#10b981",fontWeight:700,marginBottom:6}}>
+            {productionLocked ? "🔒 Production is pinned to the official backend" : "📋 Follow the setup guide — then paste your URL below"}
+          </div>
           <div style={{fontSize:11,color:"rgba(255,255,255,0.5)",lineHeight:1.7}}>
-            Your Apps Script URL looks like:<br/>
-            <span style={{fontFamily:"monospace",color:"rgba(255,255,255,0.7)",fontSize:10}}>https://script.google.com/macros/s/AKfycb.../exec</span>
+            {productionLocked ? (
+              <>
+                This live site always uses the official Apps Script deployment to avoid stale browser overrides.<br/>
+                <span style={{fontFamily:"monospace",color:"rgba(255,255,255,0.7)",fontSize:10}}>{defaultUrl}</span>
+              </>
+            ) : (
+              <>
+                Your Apps Script URL looks like:<br/>
+                <span style={{fontFamily:"monospace",color:"rgba(255,255,255,0.7)",fontSize:10}}>https://script.google.com/macros/s/AKfycb.../exec</span>
+              </>
+            )}
           </div>
         </div>
 
+        {!productionLocked && usingOverride && (
+          <div style={{background:"rgba(245,158,11,0.10)",border:"1px solid rgba(245,158,11,0.24)",borderRadius:12,padding:14,marginBottom:18}}>
+            <div style={{fontSize:12,color:"#fbbf24",fontWeight:800,marginBottom:6}}>⚠ Custom backend override active</div>
+            <div style={{fontSize:11,color:"rgba(255,255,255,0.58)",lineHeight:1.6}}>
+              This browser is using a custom Apps Script URL instead of the default production backend.
+            </div>
+          </div>
+        )}
+
         <div style={{marginBottom:16}}>
           <label style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.5)",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.06em"}}>Apps Script Web App URL</label>
-          <input value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://script.google.com/macros/s/.../exec" style={inp}/>
+          <input value={url} onChange={e=>setUrl(e.target.value)} readOnly={productionLocked} placeholder="https://script.google.com/macros/s/.../exec" style={{...inp,opacity:productionLocked?0.7:1,cursor:productionLocked?"not-allowed":"text"}}/>
         </div>
 
         {testResult&&(
@@ -475,8 +496,13 @@ function ScriptModal({current, onSave, onClose}) {
           <button onClick={testConnection} disabled={testing} style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.15)",color:"rgba(255,255,255,0.7)",borderRadius:12,padding:"11px 18px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:13,display:"flex",alignItems:"center",gap:7,opacity:testing?0.6:1}}>
             {testing?<><Spin/>Testing...</>:"🔍 Test Connection"}
           </button>
-          <button onClick={()=>{if(!url)return;onSave(url);}} style={{flex:1,background:"linear-gradient(135deg,#f59e0b,#fbbf24)",color:"#1a1a00",border:"none",borderRadius:12,padding:"11px",fontWeight:800,fontSize:14,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-            <Icon n="save" s={16}/>Save & Connect
+          {!productionLocked && usingOverride && (
+            <button onClick={()=>setUrl(defaultUrl||"")} style={{background:"rgba(59,130,246,0.10)",border:"1px solid rgba(59,130,246,0.24)",color:"#93c5fd",borderRadius:12,padding:"11px 16px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13}}>
+              Reset to Official
+            </button>
+          )}
+          <button onClick={()=>{if(!url)return;onSave(url);}} disabled={productionLocked} style={{flex:1,background:productionLocked?"rgba(148,163,184,0.18)":"linear-gradient(135deg,#f59e0b,#fbbf24)",color:productionLocked?"rgba(255,255,255,0.55)":"#1a1a00",border:"none",borderRadius:12,padding:"11px",fontWeight:800,fontSize:14,cursor:productionLocked?"not-allowed":"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+            <Icon n="save" s={16}/>{productionLocked?"Official Backend Active":"Save & Connect"}
           </button>
           <button onClick={onClose} style={{background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.12)",color:"#fff",borderRadius:12,padding:"11px 16px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:14}}>Cancel</button>
         </div>
@@ -2837,11 +2863,12 @@ export default function App() {
   const [vendors,setVendors]   = useState(DEFAULT_VENDORS);
   const DEFAULT_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzX9p5g7y_tVXHS8vP3Jmnghtwd81-pac2aTIcdU5bv3xndg0kizHVf3W2UWleZlu--4w/exec";
   const PROD_HOSTS = new Set(["gkn-expense.pages.dev"]);
+  const currentHost = typeof window !== "undefined" ? (window.location.hostname || "") : "";
+  const isProductionHost = PROD_HOSTS.has(currentHost);
   const readScriptUrl = ()=>{
     try{
-      const host = window.location.hostname || "";
       const stored = localStorage.getItem("nandanam_script_url") || "";
-      if(PROD_HOSTS.has(host)){
+      if(isProductionHost){
         if(stored !== DEFAULT_SCRIPT_URL){
           localStorage.setItem("nandanam_script_url", DEFAULT_SCRIPT_URL);
         }
@@ -5408,7 +5435,7 @@ export default function App() {
           </div>
         );
       })()}
-      {showSheets&&<ScriptModal current={scriptUrl} onSave={url=>{
+      {showSheets&&<ScriptModal current={scriptUrl} defaultUrl={DEFAULT_SCRIPT_URL} productionLocked={isProductionHost} onSave={url=>{
         setScriptUrl(url);
         try{localStorage.setItem("nandanam_script_url",url);}catch{}
         setShowSheets(false);
